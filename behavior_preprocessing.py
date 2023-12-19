@@ -31,9 +31,8 @@ os.chdir("C:\\Users\\Jannet\\Documents\\Dissertation\\codes\\behavioral_forecast
 path = "C:\\Users\\Jannet\\Documents\\Dissertation\\codes\\behavioral_forecasting_RNN\\outputs\\"
 
 # import data
-dataset = read_csv('vv_lstm_data_2021_07_12.csv', header=0, index_col = 0)
+dataset = read_csv('kian_behavior_data.csv', header=0, index_col = 0)
 
-dataset.info()
 # Data columns (total 25 columns):
 #  #   Column                 Dtype         Description
 # ---  ------                 ----          -----  
@@ -62,10 +61,11 @@ dataset.info()
 #  22  minutes                int64         minute of the day
 #  23  doy                    int64         doy of the year
 #  24  year                   int64         year
+#  25  fragment               int64         fragment (Vatovavy = 0, Sangasanga = 1)  
 
 # colums 0-2 are identifiers
 # columns 3 is the response 
-# column 4-24 are the predictors
+# column 4-25 are the predictors
 
 # visualize time series of continuous predictors
 # select predictors to plot
@@ -77,30 +77,73 @@ i = 1 # create counter
 for group in groups: # for each group
     pyplot.subplot(len(groups), 1, i) # divide the plot space 
     # 12951:18173 selected as subset of timeseries to plot, can change to plot different subsection of time series 
-    g = sns.lineplot(dataset.loc[12951:18173, 'doy'],dataset.iloc[12951:18173, group], ci = None, color = 'gray') # plot the predictors
-    g.tick_params(axis = 'both',labelsize = 7)
-    g.set_ylabel(dataset.columns[group], fontsize = 7, rotation = 40, ha='right')
-    g.set_xlabel('doy', fontsize = 7)
+    g = sns.lineplot(dataset.loc[12951:18173, 'doy'],
+                     dataset.iloc[12951:18173, group], 
+                     ci = None, 
+                     color = 'gray') # plot the predictors
+    g.tick_params(axis = 'both',
+                  labelsize = 7)
+    g.set_ylabel(dataset.columns[group], 
+                 fontsize = 7, 
+                 rotation = 40, 
+                 ha='right')
+    g.set_xlabel('doy', 
+                 fontsize = 7)
     i += 1 # update counter
 pyplot.show()
 
 # output figure
-fig.savefig(path+'data_timeseries_samples.png', dpi=300)
+fig.savefig(path+'data_timeseries_samples.png', 
+            dpi=300)
 
-## one hot encode multiclass categorical data
-# function to decode a one hot encoded string
-def one_hot_decode(encoded_seq):
-  """
-  Reverse one_hot encoding
-    
-  Parameters
-  ----------
-  encoded_seq: array of one-hot encoded data 
-	Returns
-  -------
-	series of labels
-	"""
-  return [argmax(vector) for vector in encoded_seq] # returns the index with the max value
+# one-hot encode multiclass categorical data (reproductive state and behaviors)
+# convert string to numeric using factorization
+# for behavior data
+bcode = pd.factorize(dataset.behavior.values,
+                     na_sentinel=None, 
+                     sort=True) 
+
+# for reproductive state
+rcode = pd.factorize(dataset.reproductive_state.values,
+                     na_sentinel=None, 
+                     sort = True) 
+
+# print code factors
+bcode[1] # for behavior
+rcode[1] # for reproductive states
+
+# one-hot encode behavior data
+b_encoded = to_categorical(bcode[0], 5)
+# replace unknown behavior with missing value = -1
+# using -1 since it is out of the range of the data (0 or 1) and will signal to the neural net to ignore 
+b_encoded[b_encoded[:,4] == 1] = -1 
+b_encoded = b_encoded[:,0:4] # get rid of the unknown column
+
+# one-hot encode reproductive state data 
+r_encoded = to_categorical(rcode[0], 4)
+
+# merge onehot coded data into an array with individual continuity indicator and fragment predictor
+data = np.column_stack((dataset.individual_continuity, 
+                        b_encoded, 
+                        r_encoded, 
+                        dataset.sex, 
+                        dataset.fragment))
+
+## transform normalize the continuous data
+# subset out data to be scaled
+scale_data = dataset.loc[:,['track_length', 'track_position',
+                            'since_rest','since_feed',
+                            'since_travel','since_social',
+                            'adults', 'infants',
+                            'juveniles','rain',
+                            'temperature','flower_count',
+                           'fruit_count', 'flower_shannon',
+                           'fruit_shannon','year']] 
+
+scaler = MinMaxScaler() # assign scaler
+scale_data = scaler.fit_transform(scale_data) # scale data 
+data = np.column_stack((data,scale_data)) # append to scaled predictors to data
+
 
 def cyclic_conversion(x, xmax):
   '''
@@ -119,38 +162,6 @@ def cyclic_conversion(x, xmax):
   scaler = MinMaxScaler() # generate min max scaler to fit data betewen 0-1
   xtab = scaler.fit_transform(xtab) # scale the data
   return scaler, xtab
-    
-
-# convert string to numeric using factorization
-bcode = pd.factorize(dataset.behavior.values,na_sentinel=None, sort=True)
-rcode = pd.factorize(dataset.reproductive_state.values,na_sentinel=None, sort = True)
-
-# one-hot encode the data 
-b_encoded = to_categorical(bcode[0], 5)
-b = pd.DataFrame(b_encoded)
-b.loc[(b[4] == 1)] = -1 # replace unknowns with missing values
-b_encoded = b.loc[:,range(0,4)] # get rid of the unknown column
-del b
-
-# encode the reproductive state
-r_encoded = to_categorical(rcode[0], 4)
-
-# get the code-numeric association
-bcode = bcode[1]
-rcode = rcode[1]
-
-# merge onehot coded data into an array
-data = np.column_stack((dataset.individual_continuity, b_encoded, r_encoded, dataset.sex, dataset.fragment))
-
-## transform quantitative data by scaling to mean center and normalizing
-# subset out data to be scaled
-scale_data = dataset.loc[:,['track_length', 'track_position','since_rest','since_feed','since_travel',
-                           'since_social','adults', 'infants','juveniles','rain','temperature','flower_count',
-                           'fruit_count', 'flower_shannon','fruit_shannon','year']] 
-
-scaler_cont = MinMaxScaler()
-scale_data = scaler.fit_transform(scale_data)
-data = np.column_stack((data,scale_data))
 
 # format cyclic data using sinusoidal encoding
 min_scale, min_x = cyclic_conversion(dataset.loc[:,'minutes'], 1440)
@@ -176,3 +187,20 @@ df.columns = ['individual_continuity','feed','rest','social','travel',
 df = pd.concat([dataset[['ID','TID','track_position','track_length','focal', 'year']].reset_index(drop=True), df.reset_index(drop=True)], axis = 1)
 
 df.to_csv('behavior_formatted.csv')
+
+
+
+## one hot encode multiclass categorical data
+# function to decode a one hot encoded string
+def one_hot_decode(encoded_seq):
+  """
+  Reverse one_hot encoding
+    
+  Parameters
+  ----------
+  encoded_seq: array of one-hot encoded data 
+	Returns
+  -------
+	series of labels
+	"""
+  return [argmax(vector) for vector in encoded_seq] # returns the index with the max value
