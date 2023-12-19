@@ -67,32 +67,28 @@ dataset.info()
 # columns 3 is the response 
 # column 4-24 are the predictors
 
-# Visualize time series of predictors
-name_list = ['rain', 'temperature', 'flower_count', 'fruit_count','flower_shannon','fruit_shannon',
-             'adults','infants', 'juveniles','since_rest','since_feed','since_travel',
-             'track_length','track_position']
-
+# visualize time series of continuous predictors
+# select predictors to plot
 groups = list(itertools.chain(range(16,22), range(12,15),range(6,9),range(4,6)))
 
 # plot subsample of predictor timeseries
-fig, axs = pyplot.subplots(14,1,figsize=(3,5), sharex = True, sharey = False, dpi = 300)
+fig, axs = pyplot.subplots(14,1,figsize=(8,5), sharex = True, sharey = False, squeeze = True, dpi = 300)
 i = 1 # create counter
 for group in groups: # for each group
     pyplot.subplot(len(groups), 1, i) # divide the plot space 
-    g = sns.lineplot(dataset.loc[12951:18173, 'doy'],dataset.iloc[12951:18173, group], ci = None, color = 'gray') # plot the covariates
-    g.locator_params(axis = 'y',nbins = 2, tight = None)
-    g.set_ylabel(dataset.columns[group], fontsize = 7, rotation = 40, ha='right')
+    # 12951:18173 selected as subset of timeseries to plot, can change to plot different subsection of time series 
+    g = sns.lineplot(dataset.loc[12951:18173, 'doy'],dataset.iloc[12951:18173, group], ci = None, color = 'gray') # plot the predictors
     g.tick_params(axis = 'both',labelsize = 7)
-    g.set_xlabel('day of year', fontsize = 8)
-    g.set(xlim = (100,315))
-    i += 1 # update counter 
+    g.set_ylabel(dataset.columns[group], fontsize = 7, rotation = 40, ha='right')
+    g.set_xlabel('doy', fontsize = 7)
+    i += 1 # update counter
 pyplot.show()
 
-fig.savefig(path+'data_timeseries_samples.png', dpi=150)
+# output figure
+fig.savefig(path+'data_timeseries_samples.png', dpi=300)
 
-
-## one hot encode categorical data
-# decode a one hot encoded string
+## one hot encode multiclass categorical data
+# function to decode a one hot encoded string
 def one_hot_decode(encoded_seq):
   """
   Reverse one_hot encoding
@@ -124,8 +120,6 @@ def cyclic_conversion(x, xmax):
   xtab = scaler.fit_transform(xtab) # scale the data
   return scaler, xtab
     
-# import data
-dataset = read_csv('vv_lstm_data.csv', header=0, index_col = 0)
 
 # convert string to numeric using factorization
 bcode = pd.factorize(dataset.behavior.values,na_sentinel=None, sort=True)
