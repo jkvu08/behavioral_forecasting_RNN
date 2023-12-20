@@ -20,12 +20,12 @@ def one_hot_decode(encoded_seq):
   Reverse one_hot encoding
     
   Parameters
-  ----------
+  ---------
   encoded_seq: array of one-hot encoded data 
 	Returns
   -------
 	series of labels
-	"""
+  """
   return [argmax(vector) for vector in encoded_seq] # returns the index with the max value
 
 def single_cyclic_convert(x,xmax):
@@ -33,7 +33,7 @@ def single_cyclic_convert(x,xmax):
     Turn value into sine and cosine components to take into account cyclic behavior
 
     Parameters
-    ----------
+    ---------
     x : value to be converted
     xmax : maximum possible value x can take on 
     Returns

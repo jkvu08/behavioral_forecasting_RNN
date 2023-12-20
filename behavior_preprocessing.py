@@ -68,6 +68,9 @@ dataset = read_csv('kian_behavior_data.csv', header=0, index_col = 0)
 # columns 3 is the response 
 # column 4-25 are the predictors
 
+########################
+#### Visualize data ####
+########################
 # visualize time series of continuous predictors
 # select predictors to plot
 groups = list(itertools.chain(range(16,22), range(12,15),range(6,9),range(4,6)))
@@ -97,6 +100,9 @@ pyplot.show()
 fig.savefig(path+'data_timeseries_samples.png', 
             dpi=300)
 
+######################
+#### Format Data #####
+######################
 ## one-hot encode multiclass categorical data (reproductive state and behaviors)
 # convert string to numeric using factorization
 # for behavior data
