@@ -3,30 +3,15 @@
 @author: Jannet Vu
 
 Functions for data preprocessing for the behavioral prediction dataset
-1) One-hot decoding
-2) Transformed time covariates into cyclic covariates 
-3) Untransform covariates back to time covariate 
+1) Transform time covariates into cyclic covariates 
+2) Untransform covariates back to time covariate 
 
 Input: Cleaned, unprocessed data
 Output: Processed data
 
 """
 import numpy as np
-from numpy import argmax
 from sklearn.preprocessing import MinMaxScaler
-
-def one_hot_decode(encoded_seq):
-  """
-  Reverse one_hot encoding
-    
-  Parameters
-  ---------
-  encoded_seq: array of one-hot encoded data 
-	Returns
-  -------
-	series of labels
-  """
-  return [argmax(vector) for vector in encoded_seq] # returns the index with the max value
 
 def single_cyclic_convert(x,xmax):
     '''
