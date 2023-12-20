@@ -19,16 +19,17 @@ import numpy as np
 from numpy import argmax
 from tensorflow.keras.utils import to_categorical
 from sklearn.preprocessing import MinMaxScaler
-import os
-import multiprocessing as mp
 import seaborn as sns
 import itertools
 from matplotlib import pyplot
+import itertools
 
 # set working directory
 os.chdir("C:\\Users\\Jannet\\Documents\\Dissertation\\codes\\behavioral_forecasting_RNN")
 # set directory where results will be saved
 path = "C:\\Users\\Jannet\\Documents\\Dissertation\\codes\\behavioral_forecasting_RNN\\outputs\\"
+
+import preprocess_func
 
 # import data
 dataset = read_csv('kian_behavior_data.csv', header=0, index_col = 0)
@@ -96,7 +97,7 @@ pyplot.show()
 fig.savefig(path+'data_timeseries_samples.png', 
             dpi=300)
 
-# one-hot encode multiclass categorical data (reproductive state and behaviors)
+## one-hot encode multiclass categorical data (reproductive state and behaviors)
 # convert string to numeric using factorization
 # for behavior data
 bcode = pd.factorize(dataset.behavior.values,
@@ -129,7 +130,7 @@ data = np.column_stack((dataset.individual_continuity,
                         dataset.sex, 
                         dataset.fragment))
 
-## transform normalize the continuous data
+## normalize the continuous predictors
 # subset out data to be scaled
 scale_data = dataset.loc[:,['track_length', 'track_position',
                             'since_rest','since_feed',
@@ -140,67 +141,35 @@ scale_data = dataset.loc[:,['track_length', 'track_position',
                            'fruit_count', 'flower_shannon',
                            'fruit_shannon','year']] 
 
-scaler = MinMaxScaler() # assign scaler
+scaler = MinMaxScaler() # assign normalization scaler
 scale_data = scaler.fit_transform(scale_data) # scale data 
 data = np.column_stack((data,scale_data)) # append to scaled predictors to data
-
-
-def cyclic_conversion(x, xmax):
-  '''
-  Turn variable into sine and cosine components to take into account cyclic behavior
-  Parameters
-  ----------
-  x: values to be converted
-  xmax: maximum possible value x can take on 
-  Returns
-  -------
-	xtab: 2D numpy array of X as sine and cosine components
-	'''
-  xsin = np.sin(2*np.pi*x/xmax) # get sine component
-  xcos = np.cos(2*np.pi*x/xmax) # get cosine component
-  xtab = np.column_stack((xsin, xcos)) # merge into 2D array
-  scaler = MinMaxScaler() # generate min max scaler to fit data betewen 0-1
-  xtab = scaler.fit_transform(xtab) # scale the data
-  return scaler, xtab
-
+       
 # format cyclic data using sinusoidal encoding
-min_scale, min_x = cyclic_conversion(dataset.loc[:,'minutes'], 1440)
-doy_scale, doy_x = cyclic_conversion(dataset.loc[:,'minutes'], 365)
+min_scale, min_x = preprocess_func.cyclic_conversion(x = dataset['minutes'], xmax = 1440) # 1440 minutes in a day
+doy_scale, doy_x = preprocess_func.cyclic_conversion(x = dataset['doy'], xmax = 365) # 365 days in a year
 
-# add to feature dataset
-data = np.colum_stack((data, min_x, doy_x))
+# add to cyclic predictors to dataset
+data = np.column_stack((data, min_x, doy_x))
 
-# replace NA values, use a number that is outside of the scaled range
-data = np.nan_to_num(data,copy = False, nan = -1) # used -1 in this case
+# replace NA values, use a number that is outside of predictor value range (0,1)
+data = np.nan_to_num(data,
+                     copy = False, 
+                     nan = -1) # used -1 in this case
 
 # turn into dataframe
 df = pd.DataFrame(data)
 # add column names
 df.columns = ['individual_continuity','feed','rest','social','travel',
-                 'gestation','lactation','mating','nonreproductive', 'sex','length', 
-                 'position','since_rest','since_feed','since_travel','since_social',
-                 'adults', 'infants','juveniles','rain','temperature','flower_count',
+                 'gestation','lactation','mating','nonreproductive', 
+                 'sex','fragment','length', 'position','since_rest',
+                 'since_feed','since_travel','since_social','adults', 
+                 'infants','juveniles','rain','temperature','flower_count',
                  'fruit_count', 'flower_shannon','fruit_shannon','years',
-                 'minutes_sin','minutes_cos','doy_sin','doy_cos','fragment']
+                 'minutes_sin','minutes_cos','doy_sin','doy_cos']
 
 # add identifiers at at the beginning of the standardized dataframe
 df = pd.concat([dataset[['ID','TID','track_position','track_length','focal', 'year']].reset_index(drop=True), df.reset_index(drop=True)], axis = 1)
 
+# output results
 df.to_csv('behavior_formatted.csv')
-
-
-
-## one hot encode multiclass categorical data
-# function to decode a one hot encoded string
-def one_hot_decode(encoded_seq):
-  """
-  Reverse one_hot encoding
-    
-  Parameters
-  ----------
-  encoded_seq: array of one-hot encoded data 
-	Returns
-  -------
-	series of labels
-	"""
-  return [argmax(vector) for vector in encoded_seq] # returns the index with the max value
