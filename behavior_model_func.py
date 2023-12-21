@@ -134,10 +134,34 @@ def one_hot_decode(encoded_seq):
 	"""
     return [np.argmax(vector) for vector in encoded_seq] # returns the index with the max value
 
+# from vanilla - used to subset from probs
+# def one_hot_decode(encoded_seq):
+#     """
+#     Reverse one_hot encoding
+#     Arguments:
+#         encoded_seq: array of one-hot encoded data 
+# 	Returns:
+# 		series of labels
+# 	"""
+#     return(np.random.multinomial(1, encoded_seq, tuple))
+#     #return [np.argmax(vector) for vector in encoded_seq] # returns the index with the max value
+
+# from ende - used to subset from probs
+# def one_hot_decode(encoded_seq):
+#     """
+#     Reverse one_hot encoding
+#     Arguments:
+#         encoded_seq: array of one-hot encoded data 
+# 	Returns:
+# 		series of labels
+# 	"""
+#     pred = [np.random.multinomial(1,vector) for vector in encoded_seq]
+#     return [np.argmax(vector) for vector in pred] # returns the index with the max value
+
 def to_label(data):
     
     """
-    Gets the index of the maximum value in each row. Can be used to transform one-hot encoded data to labels or probabilities to labels
+    Gets the index of the maximum value in each row. Can be used to transform one-hot encoded data or probabilities to labels
     Parameters
     ----------
     data : one-hot encoded data or probability data
@@ -159,7 +183,7 @@ def to_label(data):
 
 def get_sample_weights(train_y, weights):
     """
-    Get sample weights for the for training data, since class weights does not support 3D 
+    Get sample weights for the for training data, since tensorflow built-in 3D class weights is not supported 
 
     Parameters
     ----------
@@ -175,21 +199,30 @@ def get_sample_weights(train_y, weights):
     for key, value in weights.items(): # replace each label with its pertaining weight according to the weights dictionary
         train_lab[train_lab == key] = value
     train_lab[train_lab == 0] = 0.0000000000001 # weight cannot be 0 so reassign to very small value if it is
-    return train_lab # returm the formatted sample weights
+    return train_lab # return the formatted sample weights
 
 def f1(y_true, y_pred):
-    y_pred = K.round(y_pred)
-    tp = K.sum(K.cast(y_true*y_pred, 'float'), axis=0)
-    tn = K.sum(K.cast((1-y_true)*(1-y_pred), 'float'), axis=0)
-    fp = K.sum(K.cast((1-y_true)*y_pred, 'float'), axis=0)
-    fn = K.sum(K.cast(y_true*(1-y_pred), 'float'), axis=0)
+    '''
+    calculate f1 metric within tensorflow keras framework    
 
-    p = tp / (tp + fp + K.epsilon())
-    r = tp / (tp + fn + K.epsilon())
+    Parameters
+    ----------
+    y_true : observed value 
+    y_pred : predicted value 
 
-    f1 = 2*p*r / (p+r+K.epsilon())
-    f1 = tf.where(tf.math.is_nan(f1), tf.zeros_like(f1), f1)
-    return K.mean(f1)
+    Returns
+    -------
+    f1-score
+    '''
+    y_pred = K.round(y_pred) # round to get prediction from probability
+    tp = K.sum(K.cast(y_true*y_pred, 'float'), axis=0) # calculate true positive
+    fp = K.sum(K.cast((1-y_true)*y_pred, 'float'), axis=0) # calculate false positive
+    fn = K.sum(K.cast(y_true*(1-y_pred), 'float'), axis=0) # calculate false negative
+    p = tp / (tp + fp + K.epsilon()) # calculate precision
+    r = tp / (tp + fn + K.epsilon()) # calculate recall
+    f1 = 2*p*r / (p+r+K.epsilon()) # calculate f1-score
+    f1 = tf.where(tf.math.is_nan(f1), tf.zeros_like(f1), f1) # if nan set to 0, else set to f1 score
+    return K.mean(f1) # return the mean f1-score
 
 def f1_loss(y_true, y_pred):
     
@@ -204,129 +237,6 @@ def f1_loss(y_true, y_pred):
     f1 = 2*p*r / (p+r+K.epsilon())
     f1 = tf.where(tf.math.is_nan(f1), tf.zeros_like(f1), f1)
     return 1 - K.mean(f1)
-
-# class F1Metrics(Callback):   
-#     """
-#     Generate epoch level F1 metrics without early stopping
-#     """
-#     # define the initial values (input into the callback function)
-#     def __init__(self, validation_data, train_data, verbose = 0):   
-#         super(F1Metrics, self).__init__()
-#         self.validation_data = validation_data # set validation data
-#         self.train_data = train_data # set the training data
-#         self.verbose = verbose
-        
-#     # define values for at the beginning of training
-#     def on_train_begin(self, logs={}):
-#         self.val_f1s = [] # empty list for f1 validation
-#         self.train_f1s = [] # empty list for training validation
-        
-#     # define function to be executed at the end of the epoch
-#     def on_epoch_end(self, validation_data, epoch, logs={}):  
-#         # assign, generate predictions and labels for validation dataset
-#         val_predict = (np.asarray(self.model.predict(self.validation_data[0]))) # generate prediction probabilities
-#         val_predict = to_label(val_predict) # convert probabilities to predictions
-#         val_targ = np.asarray(self.validation_data[1]) # assign the validation target data
-#         val_targ = to_label(val_targ) # convert to the labels
-        
-#         # assign, generate predictions and labels for training dataset
-#         train_predict = (np.asarray(self.model.predict(self.train_data[0])))# generate prediction probabilities
-#         train_predict = to_label(train_predict) # convert probabilities to predictions
-#         train_targ = np.asarray(self.train_data[1]) # assign the validation target data
-#         train_targ = to_label(train_targ) # convert to the labels
-        
-#         # if more than one timestep is predicted the predictions from each timestep need to be concatenate into a single vector
-#         if len(val_targ.shape) > 1: 
-#             val_predict = np.concatenate(val_predict) # concatenate all predictions into a vector
-#             val_targ = np.concatenate(val_targ) # concatenate all predictions into a vector
-#             train_predict = np.concatenate(train_predict) # concatenate all predictions into a vector
-#             train_targ = np.concatenate(train_targ) # concatenate all predictions into a vector
-        
-#         # calcualte the f1 score
-#         _val_f1 = f1_score(val_targ, val_predict, average = 'macro') # for validation
-#         _train_f1 = f1_score(train_targ, train_predict, average = 'macro') # for training
-#         self.val_f1s.append(_val_f1) # append values
-#         self.train_f1s.append(_train_f1) # append values
-#         if self.verbose > 0:
-#             print(f' — cval_f1: {_val_f1} — ctrain_f1: {_train_f1}') # print results
-#         return
-      
-# class F1EarlyStopping(Callback):  
-#     """
-#     Generate epoch level F1 metrics with early stopping
-#     """
-#     # define the initial values (input into the callback function)
-#     def __init__(self, validation_data, train_data, patience=50, verbose=0):   
-#         super(F1EarlyStopping, self).__init__()
-#         self.validation_data = validation_data
-#         self.train_data = train_data
-#         self.patience = patience # threshold for early stopping
-#         self.verbose = verbose
-        
-#     # define values for at the beginning of training
-#     def on_train_begin(self, logs={}):
-#         self.val_f1s = [] # empty list for the val f1
-#         self.train_f1s = [] # empty list for the train f1
-#         self.best = None # initialize the best val f1
-#         self.best_weights = None # initialized the best weights
-#         self.wait = 0 # start the wait counter at 0
-#         self.stopped_epoch = 0 # start the stopped epochs at 0
-#         self.restore_epoch = 0 # start the restore epochs at 0
-        
-#     # define function to be executed at the end of the epoch
-#     def on_epoch_end(self, validation_data, epoch, logs={}):
-#         # assign, generate predictions and labels for validation dataset
-#         val_predict = (np.asarray(self.model.predict(self.validation_data[0]))) # generate prediction probabilities
-#         val_predict = to_label(val_predict) # convert probabilities to predictions
-#         val_targ = np.asarray(self.validation_data[1]) # assign the validation target data
-#         val_targ = to_label(val_targ) # convert to the labels
-        
-#         # assign, generate predictions and labels for training dataset
-#         train_predict = (np.asarray(self.model.predict(self.train_data[0])))# generate prediction probabilities
-#         train_predict = to_label(train_predict) # convert probabilities to predictions
-#         train_targ = np.asarray(self.train_data[1]) # assign the validation target data
-#         train_targ = to_label(train_targ) # convert to the labels
-        
-#         # if more than one timestep is predicted the predictions from each timestep need to be concatenate into a single vector
-#         if len(val_targ.shape) > 1: 
-#             val_predict = np.concatenate(val_predict) # concatenate all predictions into a vector
-#             val_targ = np.concatenate(val_targ) # concatenate all predictions into a vector
-#             train_predict = np.concatenate(train_predict) # concatenate all predictions into a vector
-#             train_targ = np.concatenate(train_targ) # concatenate all predictions into a vector
-        
-#         # calcualte the f1 score
-#         _val_f1 = f1_score(val_targ, val_predict, average = 'macro') # for validation
-#         _train_f1 = f1_score(train_targ, train_predict, average = 'macro') # for training
-#         self.val_f1s.append(_val_f1) # append values
-#         self.train_f1s.append(_train_f1) # append values
-#         if self.verbose > 0:
-#             print(f' — cval_f1: {_val_f1} — ctrain_f1: {_train_f1}') # print results
-        
-#         # keep track of best weights and track model improvements
-#         if self.best_weights is None: # if the best_weights haven't been assigned yet
-#             self.best_weights = self.model.get_weights() # set the first weights to be the best weight
-#             self.best = _val_f1 # set the first val f1 value to be the best value
-#             self.restore_epoch = len(self.val_f1s) # set the restored epoch to the first epoch
-#         else: # otherwise
-#             if _val_f1 >= self.best: # if current val f1 is better than or equal to the best f1
-#                 self.best = _val_f1 # reassign the best f1 to the current one
-#                 self.best_weights = self.model.get_weights() # reassign the best weights to the current one
-#                 self.wait = 0 # reset the wait timer
-#                 self.restore_epoch = len(self.val_f1s) # reassign the resotre epoch to the current one
-#             else: # otherwise
-#                 self.wait +=1 # add one to the waiting counter
-#                 if self.wait >= self.patience: # if the wait counter exceeds or is equal to the patience threshold
-#                     self.stopped_epoch = len(self.val_f1s) # note the current epoch for stopping
-#                     self.model.stop_training = True # stop the model training
-#                     if self.verbose > 0:
-#                         print('Restoring model weights from the end of the best epoch.')
-#                     self.model.set_weights(self.best_weights) # reset to the best_weights
-
-#     # define function to be executed at the end of training
-#     def on_train_end(self, logs=None):
-#         if self.stopped_epoch > 0 and self.verbose > 0: # if early stopping was activated 
-#           print('Epoch %05d: early stopping' % (self.stopped_epoch)) # then print our when it was stopped
-#         return
 
 def eval_f1_iter(model, params, train_X, train_y, test_X, test_y, patience=50, max_epochs = 300, atype = 'VRNN', n = 1):
     """
