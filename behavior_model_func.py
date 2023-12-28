@@ -214,7 +214,7 @@ def f1(y_true, y_pred):
     -------
     f1-score
     '''
-    y_pred = K.round(y_pred) # round to get prediction from probability
+    y_pred = K.round(y_pred) # round to get prediction from probability 
     tp = K.sum(K.cast(y_true*y_pred, 'float'), axis=0) # calculate true positive
     fp = K.sum(K.cast((1-y_true)*y_pred, 'float'), axis=0) # calculate false positive
     fn = K.sum(K.cast(y_true*(1-y_pred), 'float'), axis=0) # calculate false negative
@@ -225,18 +225,27 @@ def f1(y_true, y_pred):
     return K.mean(f1) # return the mean f1-score
 
 def f1_loss(y_true, y_pred):
-    
-    tp = K.sum(K.cast(y_true*y_pred, 'float'), axis=0)
-    tn = K.sum(K.cast((1-y_true)*(1-y_pred), 'float'), axis=0)
-    fp = K.sum(K.cast((1-y_true)*y_pred, 'float'), axis=0)
-    fn = K.sum(K.cast(y_true*(1-y_pred), 'float'), axis=0)
+    '''
+    calculate loss f1 metric within tensorflow keras framework
 
-    p = tp / (tp + fp + K.epsilon())
-    r = tp / (tp + fn + K.epsilon())
+    Parameters
+    ----------
+    y_true : observed value 
+    y_pred : predicted value 
 
-    f1 = 2*p*r / (p+r+K.epsilon())
-    f1 = tf.where(tf.math.is_nan(f1), tf.zeros_like(f1), f1)
-    return 1 - K.mean(f1)
+    Returns
+    -------
+    loss f1 metric
+
+    '''
+    tp = K.sum(K.cast(y_true*y_pred, 'float'), axis=0) # calculate true positive
+    fp = K.sum(K.cast((1-y_true)*y_pred, 'float'), axis=0) # calculate false positive
+    fn = K.sum(K.cast(y_true*(1-y_pred), 'float'), axis=0) # calculate false negative
+    p = tp / (tp + fp + K.epsilon()) # calculate precision
+    r = tp / (tp + fn + K.epsilon()) # calculate recall
+    f1 = 2*p*r / (p+r+K.epsilon()) # calculate f1-score
+    f1 = tf.where(tf.math.is_nan(f1), tf.zeros_like(f1), f1) # if nan set to 0, else set to f1 score
+    return 1 - K.mean(f1) # calculate loss f1
 
 def eval_f1_iter(model, params, train_X, train_y, test_X, test_y, patience=50, max_epochs = 300, atype = 'VRNN', n = 1):
     """
