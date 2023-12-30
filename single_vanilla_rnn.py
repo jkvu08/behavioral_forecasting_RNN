@@ -10,19 +10,12 @@ This code can be used to manually tune parameters by monitoring the loss plots, 
 """
 # Load libraries
 import os
-import numpy as np
-#from matplotlib import pyplot
-#import pandas as pd
 from pandas import read_csv
-#from sklearn.metrics import confusion_matrix, classification_report, ConfusionMatrixDisplay, f1_score
-#from sklearn.utils import class_weight
-#import tensorflow as tf
 from tensorflow.keras.layers import Dense, Dropout, LSTM, Masking
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.models import Sequential
 from tensorflow_addons.metrics import F1Score
 from tensorflow.keras.callbacks import EarlyStopping
-#from keras.callbacks import Callback
 
 ######################
 #### Data Import #####
@@ -67,15 +60,17 @@ test_X, test_y, test_dft = bmf.to_supervised(data = test.iloc[:,7:33],
                                              window = 1, 
                                              lookback = n_input, 
                                              n_output= n_output)
-
+        
 ################################
 #### Model parameterization ####
 ################################
 # generate class weights, using class weights to deal with data imbalance/skew 
 weights = dict(zip([0,1,2,3], [1,1,3,1])) # create a dictionary with the weights 
+
 features = train_X.shape[2] # get the number of features
 lookback = train_X.shape[1] # get the lookback period
-targets = train_y.shape[1] # get the target number
+targets = train_y.shape[2] # get the target number
+    
 neurons_n = 10 # assign number of neurons
 hidden_n = 5 # assign number of hidden neurons
 d_rate = 0.3 # assign dropout rate for regularization
@@ -87,17 +82,27 @@ model = Sequential() # create an empty sequential shell
 model.add(Masking(mask_value = -1, 
                   input_shape = (lookback, features), 
                   name = 'Masking')) 
-model.add(LSTM(units =neurons_n, input_shape = (lookback,features), name = 'LSTM')) # set the RNN type
-model.add(Dense(units = hidden_n, activation = 'relu', kernel_initializer =  'he_uniform')) # add dense layer
-model.add(Dropout(rate= d_rate)) # add dropout
-model.add(Dense(units = targets, activation = "softmax", name = 'Output')) # add output layer
+# set the RNN type
+model.add(LSTM(units =neurons_n, 
+               input_shape = (lookback,features), 
+               name = 'LSTM')) 
+# add dense layer & set activation function
+model.add(Dense(units = hidden_n, 
+                activation = 'relu', 
+                kernel_initializer =  'he_uniform')) 
+# add dropout
+model.add(Dropout(rate= d_rate)) 
+# add output layer
+model.add(Dense(units = targets, 
+                activation = "softmax", 
+                name = 'Output')) 
 model.compile(loss = 'categorical_crossentropy', # compile model, 
               optimizer = Adam(learning_rate = lr_rate), # set learning rate
               metrics= [F1Score(num_classes=targets, average = 'macro'),'accuracy']) # calculate metrics
 
 model.summary() # examine model architecture
 
-# Model: "sequential_0"
+# Model: "sequential"
 # _________________________________________________________________
 # Layer (type)                 Output Shape              Param #   
 # =================================================================
@@ -119,11 +124,11 @@ model.summary() # examine model architecture
 # fit model
 history = model.fit(train_X, # features
                     train_y, # targets
+                    validation_data = (test_X, test_y), # add validation data
                     epochs = 50, # epochs 
                     batch_size = 512, # batch size
-                    shuffle=False, # determine whether to shuffle order of data, False since we want to preserve time series
-                    validation_data = (test_X, test_y), # add validation data
                     class_weight = weights, # add class weights
+                    shuffle=False, # determine whether to shuffle order of data, False since we want to preserve time series
                     verbose = 2) # status print outs
 history.history.keys() # examine outputs
 # dict_keys(['loss', 'f1_score', 'accuracy', 'val_loss', 'val_f1_score', 'val_accuracy'])
@@ -165,13 +170,23 @@ cm_fig = bmf.confusion_mat(y_val, y_pred) # generate confusion matrix
 bmf.class_report(y_val, y_pred) # generate classification report
 
 # calculte overall f1 score and timestep f1 scores, as well as output confusion matrix and classification report in pdf
-lstm_score, _, _, _ = bmf.result_summary(test_y, y_prob, path, 'manual_vanilla_rnn_lstm_evaluation') 
+lstm_score, _, _, _ = bmf.result_summary(test_y, 
+                                         y_prob, 
+                                         path, 
+                                         'manual_vanilla_rnn_lstm_evaluation') 
 # lstm_score = 0.316
 
 # view output file results
 
 # build model using wrapper
-model = bmf.build_rnn(train_X, train_y, neurons_n = 20, hidden_n = 10, lr_rate = 0.001, d_rate=0.3,layers = 1, mtype = 'GRU')
+model = bmf.build_rnn(train_X, 
+                      train_y, 
+                      neurons_n = 20, 
+                      hidden_n = 10, 
+                      lr_rate = 0.001, 
+                      d_rate=0.3,
+                      layers = 1, 
+                      mtype = 'GRU')
 model.summary()
 # Model: "sequential_1"
 # _________________________________________________________________
@@ -202,12 +217,12 @@ early_stopping = EarlyStopping(monitor='val_loss', # monitor validation loss
 # fit the model
 history = model.fit(train_X, 
                     train_y, 
+                    validation_data=(test_X,test_y),
                     epochs = 100, 
                     batch_size = 512,
-                    shuffle=False,
-                    validation_data=(test_X,test_y),
                     class_weight=weights,
                     callbacks = [early_stopping],
+                    shuffle=False,
                     verbose = 2)
 
 # early stopping activated, stopped after 61 epochs
@@ -241,12 +256,23 @@ y_val[0:10] # view observed targets
 # [1, 3, 1, 1, 1, 1, 1, 1, 1, 1]
 y_pred[0:10] # view subset of predictions
 # [1, 3, 3, 1, 0, 1, 3, 1, 1, 1] 3 predictions differ from target, slightly better alignment than previous lstm model based accuracy of first 10 records
-gru_score, _, _, _ = bmf.result_summary(test_y, y_prob, path, 'manual_vanilla_rnn_gru_evaluation')
+gru_score, _, _, _ = bmf.result_summary(test_y, 
+                                        y_prob, 
+                                        path, 
+                                        'manual_vanilla_rnn_gru_evaluation')
 # view output file results
 # gru_score = 0.327, slightly higher f1 score compared to lstm model
 
 # build model using f1_loss function
-model = bmf.build_rnn(train_X, train_y, neurons_n = 20, hidden_n = 10, lr_rate = 0.001, d_rate=0.3,layers = 1, mtype = 'GRU', cat_loss = False)
+model = bmf.build_rnn(train_X, 
+                      train_y, 
+                      neurons_n = 20, 
+                      hidden_n = 10, 
+                      lr_rate = 0.001, 
+                      d_rate=0.3,
+                      layers = 1, 
+                      mtype = 'GRU', 
+                      cat_loss = False)
 model.summary()
 # Model: "sequential_2"
 # _________________________________________________________________
@@ -277,12 +303,12 @@ early_stopping = EarlyStopping(monitor='val_loss', # monitor validation loss
 # fit the model
 history = model.fit(train_X, 
                     train_y, 
+                    validation_data=(test_X,test_y),
                     epochs = 100, 
                     batch_size = 512,
-                    shuffle=False,
-                    validation_data=(test_X,test_y),
                     class_weight=weights,
                     callbacks = [early_stopping],
+                    shuffle=False,
                     verbose = 2)
 
 history.history.keys()
@@ -335,7 +361,10 @@ y_val[0:10] # view observed targets
 # [1, 3, 1, 1, 1, 1, 1, 1, 1, 1]
 y_pred[0:10] # view subset of predictions
 # [0, 1, 3, 1, 1, 1, 1, 1, 1, 1] 3 predictions differ from target, same performance of previous gru model based on accuracy of first 10 records
-gru_score_f1, _, _, _ = bmf.result_summary(test_y, y_prob, path, 'manual_vanilla_rnn_gru_evaluation_f1')
+gru_score_f1, _, _, _ = bmf.result_summary(test_y, 
+                                           y_prob, 
+                                           path, 
+                                           'manual_vanilla_rnn_gru_evaluation_f1')
 # view output file results
 # gru_score_f1 = 0.442, higher f1 score compared to lstm and gru model trained using categorical cross entropy loss function
 # also outperforms models trained using categorical cross entropy loss function based on overall and class specific precision, recall and accuracy
