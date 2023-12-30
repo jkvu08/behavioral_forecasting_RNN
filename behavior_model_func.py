@@ -187,6 +187,8 @@ def to_label(data, prob = False):
 
     """
     y_label = [] # create empty list for y_labels
+    if len(data.shape) == 3 & data.shape[1] == 1:
+        data = np.reshape(data, (data.shape[0],data.shape[2]))
     if len(data.shape) == 2: # if it is a one timestep prediction 
         if prob == False: # and prob is false
             y_label = np.array(one_hot_decode(data)) # then one-hot decode to get the labels
@@ -606,8 +608,8 @@ def eval_iter(model, params, train_X, train_y, test_X, test_y, patience = 0 , ma
     for i in range(n): # for each iteration
         # fit the model 
         history = model.fit(train_X, 
-                            train_y[:,newaxis,:], 
-                            validation_data = (test_X, test_y[:,newaxis,:]),
+                            train_y, 
+                            validation_data = (test_X, test_y),
                             epochs = max_epochs, 
                             batch_size = params['batch_size'],
                             sample_weight = sample_weights,
