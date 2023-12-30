@@ -10,7 +10,9 @@ This code can be used to manually tune parameters by monitoring the loss plots, 
 """
 # Load libraries
 import os
+import pandas as pd
 from pandas import read_csv
+import tensorflow as tf
 from tensorflow.keras.layers import Dense, Dropout, LSTM, Masking
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.models import Sequential
@@ -69,7 +71,7 @@ weights = dict(zip([0,1,2,3], [1,1,3,1])) # create a dictionary with the weights
 
 features = train_X.shape[2] # get the number of features
 lookback = train_X.shape[1] # get the lookback period
-targets = train_y.shape[2] # get the target number
+targets = train_y.shape[1] # get the target number
     
 neurons_n = 10 # assign number of neurons
 hidden_n = 5 # assign number of hidden neurons
@@ -127,14 +129,14 @@ history = model.fit(train_X, # features
                     validation_data = (test_X, test_y), # add validation data
                     epochs = 50, # epochs 
                     batch_size = 512, # batch size
-                    class_weight = weights, # add class weights
+                  #  class_weight = weights, # add class weights
                     shuffle=False, # determine whether to shuffle order of data, False since we want to preserve time series
                     verbose = 2) # status print outs
 history.history.keys() # examine outputs
-# dict_keys(['loss', 'f1_score', 'accuracy', 'val_loss', 'val_f1_score', 'val_accuracy'])
+# dict_keys(['loss', 'f1', 'accuracy', 'val_loss', 'val_f1', 'val_accuracy'])
 
 # monitor and evaluate the results
-mon_plots = bmf.monitoring_plots(history, ['loss','f1_score','accuracy']) # generate loss and performance curves
+mon_plots = bmf.monitoring_plots(history, ['loss','f1','accuracy']) # generate loss and performance curves
 mon_plots.savefig(path+'manual_vanilla_rnn_lstm_monitoring.jpg', dpi=150) # save monitoring plot and examine in output file
 # signs of overfit to training, might want to add early stopping
 
@@ -221,13 +223,13 @@ history = model.fit(train_X,
                     epochs = 100, 
                     batch_size = 512,
                     class_weight=weights,
-                    callbacks = [early_stopping],
+                #    callbacks = [early_stopping],
                     shuffle=False,
                     verbose = 2)
 
 # early stopping activated, stopped after 61 epochs
 # monitor the results
-mon_plots2 = bmf.monitoring_plots(history, ['loss','f1_score','accuracy'])
+mon_plots2 = bmf.monitoring_plots(history, ['loss','f1','accuracy'])
 mon_plots2.savefig(path+'manual_vanilla_rnn_gru_monitoring.jpg', dpi=150) # save monitoring plot
 # loss and acc plateaus, f1 still oscillating
 # could try running with f1 loss function instead
@@ -301,7 +303,7 @@ early_stopping = EarlyStopping(monitor='val_loss', # monitor validation loss
                                verbose=1) # print progress
 
 # fit the model
-history = model.fit(train_X, 
+history1 = model.fit(train_X, 
                     train_y, 
                     validation_data=(test_X,test_y),
                     epochs = 100, 
@@ -312,7 +314,7 @@ history = model.fit(train_X,
                     verbose = 2)
 
 # monitor the results
-mon_plots3 = bmf.monitoring_plots(history, ['loss','f1_score','accuracy'])
+mon_plots3 = bmf.monitoring_plots(history, ['loss','f1','accuracy'])
 mon_plots3.savefig(path+'manual_vanilla_rnn_gru_monitoring_f1_loss.jpg', dpi=150) # save monitoring plot
 # loss and performance curves are less noisy
 # early stopping activated after 95 epochs
@@ -367,3 +369,111 @@ gru_score_f1, _, _, _ = bmf.result_summary(test_y,
 # view output file results
 # gru_score_f1 = 0.442, higher f1 score compared to lstm and gru model trained using categorical cross entropy loss function
 # also outperforms models trained using categorical cross entropy loss function based on overall and class specific precision, recall and accuracy
+
+# test same model multiple times
+params = {'atype': 'VRNN',
+          'mtype': 'GRU',
+          'hidden_layers': 1,
+          'neurons_n': 20,
+          'hidden_n': 10,
+          'learning_rate': 0.001,
+          'dropout_rate': 0.3,               
+          'loss': False,
+          'epochs': 100,
+          'batch_size': 512,
+          'weights_0': 1,
+          'weights_1': 1,
+          'weights_2': 3,
+          'weights_3': 1}
+
+model = bmf.build_rnn(train_X, 
+                      train_y, 
+                      layers = params['hidden_layers'], 
+                      neurons_n = params['neurons_n'], 
+                      hidden_n = params['hidden_n'], 
+                      lr_rate = params['learning_rate'], 
+                      d_rate= params['dropout_rate'],
+                      mtype = params['mtype'], 
+                      cat_loss = params['loss'])
+model.summary()
+# Model: "sequential_3"
+# _________________________________________________________________
+# Layer (type)                 Output Shape              Param #   
+# =================================================================
+# Masking (Masking)            (None, 5, 26)             0         
+# _________________________________________________________________
+# GRU (GRU)                    (None, 20)                2880      
+# _________________________________________________________________
+# dense_6 (Dense)              (None, 10)                210       
+# _________________________________________________________________
+# dropout_6 (Dropout)          (None, 10)                0         
+# _________________________________________________________________
+# Output (Dense)               (None, 4)                 44        
+# =================================================================
+# Total params: 3,134
+# Trainable params: 3,134
+# Non-trainable params: 0
+# _________________________________________________________________
+
+# run without early stopping, 5 trials
+eval_tab, avg_eval = bmf.eval_iter(model, 
+                                   params, 
+                                   train_X, 
+                                   train_y, 
+                                   test_X, 
+                                   test_y, 
+                                   patience = 0, 
+                                   max_epochs = params['epochs'], 
+                                   atype = params['atype'], 
+                                   n =5)
+
+eval_tab # epochs run, loss and metrics at the end of each model iteration 
+#    epochs      loss        f1  accuracy  val_loss    val_f1  val_accuracy
+# 0     100  0.572928  0.442878  0.772688  0.580334  0.418397      0.838323
+# 1     100  0.569342  0.445388  0.774495  0.580385  0.418306      0.838665
+# 2     100  0.566893  0.447899  0.775716  0.581640  0.417230      0.837751
+# 3     100  0.564228  0.449986  0.776253  0.580436  0.418522      0.836952
+# 4     100  0.565326  0.449062  0.775545  0.584795  0.413532      0.833295
+# similar performance
+
+avg_eval # average epochs run, loss and metrics
+# epochs          100.000000
+# loss              0.567744
+# f1                0.447043
+# accuracy          0.774940
+# val_loss          0.581518
+# val_f1            0.417197
+# val_accuracy      0.836997
+# dtype: float64
+
+# run with early stopping with patience = 50, stopped val loss does not improve for 50 epochs
+eval_tab, avg_eval = bmf.eval_iter(model, 
+                                   params, 
+                                   train_X, 
+                                   train_y, 
+                                   test_X, 
+                                   test_y, 
+                                   patience = 50, 
+                                   max_epochs = params['epochs'], 
+                                   atype = params['atype'], 
+                                   n = 5)
+
+eval_tab # epochs run, loss and metrics at the end of each model iteration 
+#    epochs      loss        f1  accuracy  val_loss    val_f1  val_accuracy
+# 0      29  0.563981  0.450507  0.776888  0.580384  0.418536      0.838494
+# 1     100  0.561938  0.452078  0.777376  0.584681  0.414455      0.836152
+# 2      31  0.561969  0.452241  0.778011  0.581433  0.417510      0.839865
+# 3       1  0.562095  0.452232  0.777889  0.580416  0.418613      0.839865
+# 4     100  0.559126  0.455184  0.779012  0.583763  0.414756      0.837866
+# variation in epochs run, however loss and metrics were consistent between runs
+
+avg_eval # average epochs run, loss and metrics
+# epochs          52.200000
+# loss             0.561822
+# f1               0.452449
+# accuracy         0.777835
+# val_loss         0.582136
+# val_f1           0.416774
+# val_accuracy     0.838448
+# dtype: float64
+# similar metrics as the run without patience, likely cause loss and metrics plateaued
