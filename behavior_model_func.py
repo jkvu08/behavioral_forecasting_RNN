@@ -162,6 +162,25 @@ def one_hot_decode(encoded_seq):
 #     pred = [np.random.multinomial(1,vector) for vector in encoded_seq]
 #     return [np.argmax(vector) for vector in pred] # returns the index with the max value
 
+# function to adjust the prediction prob between 0 and 1, due to the estimatio of the f1 loss function, sometimes class prob predictions don't exactly sum to 1
+def prob_adjust(y_prob):
+    """
+    ensure probabiltiies fall between 0 and 1 by subtracting small number (0.0001) from the largest probability
+
+    Parameters
+    ----------
+    y_prob : predicted prob of classes
+
+    Returns
+    -------
+    y_prob : adjusted predicted prob of classes
+
+    """
+    y_max = tuple(one_hot_decode(y_prob)) # get max prob class
+    y_adjust = y_prob[range(y_prob.shape[0]), y_max] - 0.00001 # subtract small number from max prob
+    y_prob[range(y_prob.shape[0]), y_max] = y_adjust # replace adjusted prob into data
+    return y_prob # return adjusted prob
+
 ########################
 #### Model building ####
 ########################
@@ -422,9 +441,10 @@ def eval_f1_iter(model, params, train_X, train_y, test_X, test_y, patience=50, m
 #    # avg_val = np.mean(eval_run,axis=0)
 #     return eval_run, np.nan, val_loss, np.nan, train_loss
 
-def build_rnn(train_X, train_y, neurons_n=10, hidden_n=10, lr_rate=0.001, d_rate = 0.2, layers = 1, mtype = 'LSTM'):
+def build_rnn(train_X, train_y, neurons_n=10, hidden_n=10, lr_rate=0.001, d_rate = 0.2, layers = 1, mtype = 'LSTM', loss = 'CCE'):
     """
     Vanilla LSTM for single timestep output prediction (one-to-one or many-to-one)
+    
     Parameters
     ----------
     neurons_n : int,number of neurons, (the default is 10).
@@ -433,6 +453,8 @@ def build_rnn(train_X, train_y, neurons_n=10, hidden_n=10, lr_rate=0.001, d_rate
     d_rate : float, drop out rate (the default is 0.2).
     layers: 1 
     mtype: string, model type (LSTM or GRU only, default is LSTM)
+    loss: string, default is 'CCE' for categorical cross-entropy, other option is 'f1' for f1 loss
+    
     Returns
     -------
     model : model
@@ -451,8 +473,58 @@ def build_rnn(train_X, train_y, neurons_n=10, hidden_n=10, lr_rate=0.001, d_rate
         model.add(Dense(units = hidden_n, activation = 'relu', kernel_initializer =  'he_uniform')) # add dense layer
         model.add(Dropout(rate= d_rate)) # add dropout
     model.add(Dense(units = targets, activation = "softmax", name = 'Output')) # add output layer
-    model.compile(loss = 'categorical_crossentropy', optimizer = Adam(learning_rate = lr_rate), metrics= [F1Score(num_classes=targets, average = 'macro'),'accuracy']) # compile model, set learning rate and metrics
+    if loss == 'CCE':
+        model.compile(loss = 'categorical_crossentropy', optimizer = Adam(learning_rate = lr_rate), metrics= [F1Score(num_classes=targets, average = 'macro'),'accuracy']) # compile model, set learning rate and metrics
+    elif loss == 'f1':
+        model.compile(loss = f1_loss, optimizer = Adam(learning_rate = lr_rate),  metrics= [F1Score(num_classes=targets, average = 'macro'),'accuracy']) # compile model, set learning rate and metrics
+    else:
+        raise Exception ('invalid loss function')
     return model 
+
+def build_ende(train_X, train_y, neurons_n = 10, hidden_n = 10, td_neurons = 10, lr_rate  = 0.001, d_rate = 0.2, layers = 1, mtype = 'LSTM'):
+    """
+    Single encoder-decoder model
+
+    Parameters
+    ----------
+    train_X : training features
+    train_y : training predictions
+    neurons_n : number of neurons. The default is 10.
+    hidden_n : number of hidden neurons. The default is 10.
+    td_neurons : number of timde distributed neurons. The default is 10.
+    lr_rate : Learning rate. The default is 0.001.
+    d_rate : dropout rate. The default is 0.2.
+    layers : number of layers The default is 1.
+    mtype : model type, should be LSTM or GRU. The default is 'LSTM'.
+
+    Returns
+    -------
+    model : compiled model
+
+    """
+    lookback = train_X.shape[1] # set lookback
+    features = train_X.shape[2] # set features
+    n_outputs = train_y.shape[1] # set prediction timesteps
+    targets = train_y.shape[2] # set number of targets per timesteps
+	# define model
+    model = Sequential() # create empty sequential model
+    model.add(Masking(mask_value = -1, input_shape = (lookback, features), name = 'Masking')) # add a masking layer to tell the model to ignore missing values
+    if mtype == 'LSTM': # if the model is an LSTM
+        model.add(LSTM(units =neurons_n, input_shape = (lookback,features), name = 'LSTM')) # set the RNN type
+    else: # otherwise set the GRU as the model type
+        model.add(GRU(units =neurons_n, input_shape = (lookback,features), name = 'GRU')) # set the RNN type
+    for i in range(layers): # for each layer  
+        model.add(Dense(units = hidden_n, activation = 'relu', kernel_initializer =  'he_uniform')) # add a dense layer 
+        model.add(Dropout(rate= d_rate)) # and add a dropout layer
+    model.add(RepeatVector(n_outputs)) # repeats encoder context for each prediction timestep
+    if mtype == 'LSTM': # if the model type is LSTM 
+        model.add(LSTM(units =neurons_n, input_shape = (lookback,features), return_sequences=True)) # set the RNN type
+    else: # else set the layer to GRU
+        model.add(GRU(units =neurons_n, input_shape = (lookback,features), return_sequences = True)) # set the RNN type
+    model.add(TimeDistributed(Dense(units = td_neurons, activation='relu'))) # used to make sequential predictions, applies decoder fully connected layer to each prediction timestep
+    model.add(TimeDistributed(Dense(targets, activation = "softmax"))) # applies output layer to each prediction timestep
+    model.compile(loss = 'categorical_crossentropy', optimizer = Adam(learning_rate = lr_rate), metrics = 'accuracy', sample_weight_mode = 'temporal') # compile the model
+    return model
 
 def hyp_rnn_nest(params, features, targets):
     """
@@ -754,7 +826,7 @@ def hyperoptimizer_ende(params):
 ##########################
 #### Model evaluation ####
 ##########################
-def monitoring_plots(result):
+def monitoring_plots(result, metrics):
     """
     plot the training and validation loss, f1 and accuracy
 
@@ -766,27 +838,34 @@ def monitoring_plots(result):
     -------
     monitoring plots outputted
     """
-    fig, ax = pyplot.subplots(1,3, figsize = (8,2))
-    # plot the loss
-    pyplot.subplot(1,3,1)
-    pyplot.plot(result.history['loss'], label='train')
-    pyplot.plot(result.history['val_loss'], label='validation')
-    pyplot.legend()
-    pyplot.title('loss')
+    n = len(metrics)
+    fig, ax = pyplot.subplots(1,n, figsize = (2*n+2,2))
+    for i in range(n):
+        pyplot.subplot(1,n,i+1)
+        pyplot.plot(result.history[metrics[i]], label='train')
+        pyplot.plot(result.history['val_'+metrics[i]], label='validation')
+        pyplot.legend()
+        pyplot.title(metrics[i])
+    # # plot the loss
+    # pyplot.subplot(1,3,1)
+    # pyplot.plot(result.history['loss'], label='train')
+    # pyplot.plot(result.history['val_loss'], label='validation')
+    # pyplot.legend()
+    # pyplot.title('loss')
         
-    # plot the f1 score
-    pyplot.subplot(1,3,2)
-    pyplot.plot(result.history['f1_score'], label='train')
-    pyplot.plot(result.history['val_f1_score'], label='validation')
-    pyplot.legend()
-    pyplot.title('f1')
+    # # plot the f1 score
+    # pyplot.subplot(1,3,2)
+    # pyplot.plot(result.history['f1_score'], label='train')
+    # pyplot.plot(result.history['val_f1_score'], label='validation')
+    # pyplot.legend()
+    # pyplot.title('f1')
     
-    # plot the accuracy score
-    pyplot.subplot(1,3,3)
-    pyplot.plot(result.history['accuracy'], label='train')
-    pyplot.plot(result.history['val_accuracy'], label='validation')
-    pyplot.legend()
-    pyplot.title('accuracy')
+    # # plot the accuracy score
+    # pyplot.subplot(1,3,3)
+    # pyplot.plot(result.history['accuracy'], label='train')
+    # pyplot.plot(result.history['val_accuracy'], label='validation')
+    # pyplot.legend()
+    # pyplot.title('accuracy')
     fig.tight_layout()
     return fig
     
@@ -829,6 +908,7 @@ def confusion_mat(y, y_pred):
     pyplot.ylabel('True label', fontsize = 7)
     pyplot.xlabel('Predicted label', fontsize = 7)
     fig.tight_layout()
+    pyplot.show(block=True)
     return fig
 
 def class_report(y, y_pred):

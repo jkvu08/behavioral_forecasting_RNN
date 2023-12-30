@@ -267,39 +267,28 @@ model.summary()
 # Non-trainable params: 0
 # _________________________________________________________________
 
-# generate a callback for early stopping to prevent overfitting on training data
-early_stopping = EarlyStopping(monitor='val_loss', # monitor validation loss
-                               patience = 25, # stop if loss doesn't improve after 5 epochs
-                               mode = 'min', # minimize validation loss 
-                               restore_best_weights=True, # restore the best weights
-                               verbose=1) # print progress
-
-# generate sample weights
-sweights = bmf.get_sample_weights(train_y, weights)
-
 # fit the model
-history = model.fit(train_X, 
+history1 = model.fit(train_X, 
                     train_y, 
                     epochs = 100, 
                     batch_size = 512,
                     shuffle=False,
                     validation_data=(test_X,test_y),
-                    sample_weight = sweights,
-                    class_weight=None,
-                  #  callbacks = [early_stopping],
+                    class_weight=weights,
                     verbose = 2)
 
 history.history.keys()
-# early stopping activated, stopped after 61 epochs
 # monitor the results
-mon_plots3 = bmf.monitoring_plots(history, ['loss','f1','accuracy'])
+mon_plots3 = bmf.monitoring_plots(history, ['loss','f1_score','accuracy'])
 mon_plots3.savefig(path+'manual_vanilla_rnn_gru_monitoring_f1_loss.jpg', dpi=150) # save monitoring plot
 # loss and performance curves are less noisy
+# 100 epochs seems reasonable
 
 loss, f1, accuracy = model.evaluate(test_X, test_y) # evaluate the model (also could just extract from the fit directly)
-# f1_loss: 0.671
-# f1: 0.330
-# accuracy: 0.837
+# f1_loss: 0.667
+# f1: 0.441
+# accuracy: 0.840
+
 y_prob = model.predict(test_X) # get prediction prob for each class
 y_prob[0:10,:] # print subset
 # array([[1.00000000e+00, 2.08646195e-15, 1.93955227e-10, 3.30982013e-11],
@@ -314,6 +303,8 @@ y_prob[0:10,:] # print subset
 #        [2.93278772e-17, 1.00000000e+00, 8.81333292e-15, 1.02930872e-10]],
 #       dtype=float32)
 
+# ensure row probabilities equal to 1, might slightly deviate due to approximation of f1_loss function
+# subtract a small amount from the largest class probability per row
 y_proba = bmf.prob_adjust(y_prob)
 y_proba[0:10,:]
 # array([[9.99989986e-01, 2.08646195e-15, 1.93955227e-10, 3.30982013e-11],
@@ -337,5 +328,5 @@ y_pred[0:10] # view subset of predictions
 # [0, 1, 3, 1, 1, 1, 1, 1, 1, 1] 3 predictions differ from target, same performance of previous gru model based on accuracy of first 10 records
 gru_score_f1, _, _, _ = bmf.result_summary(test_y, y_prob, path, 'manual_vanilla_rnn_gru_evaluation_f1')
 # view output file results
-# gru_score_f1 = 0.435, higher f1 score compared to lstm and gru model trained using categorical cross entropy loss function
+# gru_score_f1 = 0.442, higher f1 score compared to lstm and gru model trained using categorical cross entropy loss function
 # also outperforms models trained using categorical cross entropy loss function based on overall and class specific precision, recall and accuracy
