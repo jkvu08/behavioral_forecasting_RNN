@@ -246,7 +246,7 @@ gru_score, _, _, _ = bmf.result_summary(test_y, y_prob, path, 'manual_vanilla_rn
 # gru_score = 0.327, slightly higher f1 score compared to lstm model
 
 # build model using f1_loss function
-model = bmf.build_rnn(train_X, train_y, neurons_n = 20, hidden_n = 10, lr_rate = 0.001, d_rate=0.3,layers = 1, mtype = 'GRU')
+model = bmf.build_rnn(train_X, train_y, neurons_n = 20, hidden_n = 10, lr_rate = 0.001, d_rate=0.3,layers = 1, mtype = 'GRU', cat_loss = False)
 model.summary()
 # Model: "sequential_2"
 # _________________________________________________________________
@@ -267,14 +267,22 @@ model.summary()
 # Non-trainable params: 0
 # _________________________________________________________________
 
+# generate a callback for early stopping to prevent overfitting on training data
+early_stopping = EarlyStopping(monitor='val_loss', # monitor validation loss
+                               patience = 25, # stop if loss doesn't improve after 25 epochs
+                               mode = 'min', # minimize validation loss 
+                               restore_best_weights=True, # restore the best weights
+                               verbose=1) # print progress
+
 # fit the model
-history1 = model.fit(train_X, 
+history = model.fit(train_X, 
                     train_y, 
                     epochs = 100, 
                     batch_size = 512,
                     shuffle=False,
                     validation_data=(test_X,test_y),
                     class_weight=weights,
+                    callbacks = [early_stopping],
                     verbose = 2)
 
 history.history.keys()
@@ -282,12 +290,13 @@ history.history.keys()
 mon_plots3 = bmf.monitoring_plots(history, ['loss','f1_score','accuracy'])
 mon_plots3.savefig(path+'manual_vanilla_rnn_gru_monitoring_f1_loss.jpg', dpi=150) # save monitoring plot
 # loss and performance curves are less noisy
-# 100 epochs seems reasonable
+# early stopping activated after 95 epochs
+# 100 epochs seems reasonable then
 
 loss, f1, accuracy = model.evaluate(test_X, test_y) # evaluate the model (also could just extract from the fit directly)
 # f1_loss: 0.667
-# f1: 0.441
-# accuracy: 0.840
+# f1: 0.443
+# accuracy: 0.837
 
 y_prob = model.predict(test_X) # get prediction prob for each class
 y_prob[0:10,:] # print subset

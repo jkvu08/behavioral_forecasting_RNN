@@ -138,18 +138,6 @@ def one_hot_decode(encoded_seq):
     else: # otherwise there are multiple predictions to decode
         return [np.argmax(vector) for vector in encoded_seq] # returns the index with the max value
 
-# from vanilla - used to subset from probs
-# def one_hot_decode(encoded_seq):
-#     """
-#     Reverse one_hot encoding
-#     Arguments:
-#         encoded_seq: array of one-hot encoded data 
-#  	Returns:
-# 		series of labels
-#  	"""
-#     return(np.random.multinomial(1, encoded_seq, tuple))
-   # return [np.argmax(vector) for vector in encoded_seq] # returns the index with the max value
-
 # from ende - used to subset from probs
 # def one_hot_decode(encoded_seq):
 #     """
@@ -441,7 +429,7 @@ def eval_f1_iter(model, params, train_X, train_y, test_X, test_y, patience=50, m
 #    # avg_val = np.mean(eval_run,axis=0)
 #     return eval_run, np.nan, val_loss, np.nan, train_loss
 
-def build_rnn(train_X, train_y, neurons_n=10, hidden_n=10, lr_rate=0.001, d_rate = 0.2, layers = 1, mtype = 'LSTM', loss = 'CCE'):
+def build_rnn(train_X, train_y, neurons_n=10, hidden_n=10, lr_rate=0.001, d_rate = 0.2, layers = 1, mtype = 'LSTM', cat_loss = True):
     """
     Vanilla LSTM for single timestep output prediction (one-to-one or many-to-one)
     
@@ -453,7 +441,7 @@ def build_rnn(train_X, train_y, neurons_n=10, hidden_n=10, lr_rate=0.001, d_rate
     d_rate : float, drop out rate (the default is 0.2).
     layers: 1 
     mtype: string, model type (LSTM or GRU only, default is LSTM)
-    loss: string, default is 'CCE' for categorical cross-entropy, other option is 'f1' for f1 loss
+    cat_loss: boolean, loss type of True categorical cross-entrophy loss is used, if False f1 loss is used. The default is True, 
     
     Returns
     -------
@@ -473,15 +461,13 @@ def build_rnn(train_X, train_y, neurons_n=10, hidden_n=10, lr_rate=0.001, d_rate
         model.add(Dense(units = hidden_n, activation = 'relu', kernel_initializer =  'he_uniform')) # add dense layer
         model.add(Dropout(rate= d_rate)) # add dropout
     model.add(Dense(units = targets, activation = "softmax", name = 'Output')) # add output layer
-    if loss == 'CCE':
+    if cat_loss == True:
         model.compile(loss = 'categorical_crossentropy', optimizer = Adam(learning_rate = lr_rate), metrics= [F1Score(num_classes=targets, average = 'macro'),'accuracy']) # compile model, set learning rate and metrics
-    elif loss == 'f1':
-        model.compile(loss = f1_loss, optimizer = Adam(learning_rate = lr_rate),  metrics= [F1Score(num_classes=targets, average = 'macro'),'accuracy']) # compile model, set learning rate and metrics
     else:
-        raise Exception ('invalid loss function')
+        model.compile(loss = f1_loss, optimizer = Adam(learning_rate = lr_rate),  metrics= [F1Score(num_classes=targets, average = 'macro'),'accuracy']) # compile model, set learning rate and metrics
     return model 
 
-def build_ende(train_X, train_y, neurons_n = 10, hidden_n = 10, td_neurons = 10, lr_rate  = 0.001, d_rate = 0.2, layers = 1, mtype = 'LSTM'):
+def build_ende(train_X, train_y, neurons_n = 10, hidden_n = 10, td_neurons = 10, lr_rate  = 0.001, d_rate = 0.2, layers = 1, mtype = 'LSTM', cat_loss = True):
     """
     Single encoder-decoder model
 
@@ -496,6 +482,7 @@ def build_ende(train_X, train_y, neurons_n = 10, hidden_n = 10, td_neurons = 10,
     d_rate : dropout rate. The default is 0.2.
     layers : number of layers The default is 1.
     mtype : model type, should be LSTM or GRU. The default is 'LSTM'.
+    cat_loss: boolean, default is True, categorical cross-entrophy loss is used, if False f1 loss is used
 
     Returns
     -------
