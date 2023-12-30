@@ -434,7 +434,7 @@ eval_tab # epochs run, loss and metrics at the end of each model iteration
 # 2     100  0.566893  0.447899  0.775716  0.581640  0.417230      0.837751
 # 3     100  0.564228  0.449986  0.776253  0.580436  0.418522      0.836952
 # 4     100  0.565326  0.449062  0.775545  0.584795  0.413532      0.833295
-# similar performance
+# similar performance across iterations
 
 avg_eval # average epochs run, loss and metrics
 # epochs          100.000000
