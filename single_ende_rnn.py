@@ -18,6 +18,7 @@ from pandas import read_csv, DataFrame
 from sklearn.metrics import confusion_matrix, classification_report, ConfusionMatrixDisplay, f1_score
 import tensorflow as tf
 from tensorflow.keras.layers import Dense, Dropout, LSTM, Masking, GRU, RepeatVector, TimeDistributed
+from tensorflow_addons.metrics import F1Score
 #from tensorflow.keras.preprocessing import sequence
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.models import Sequential
@@ -67,166 +68,142 @@ test_X, test_y, test_dft = bmf.to_supervised(data = test.iloc[:,7:33],
                                              lookback = n_input, 
                                              n_output= n_output)
 
+# copy over 2d test set, will be used to evaluate later
+y_test = np.copy(test_y)
 
-
-def report_average(reports):
-    """
-    get report average for classification report across multiple runs 
-
-    Parameters
-    ----------
-    reports : list of classification reports 
-
-    Returns
-    -------
-    mean_dict : dictionary of the average classification values
-
-    """
-    mean_dict = dict() # create an empty dictionary
-    for label in reports[0].keys(): # for each key 
-        dictionary = dict() # create a dictionary
-        if label in 'accuracy': # for the accuracy take the average across all reports
-            mean_dict[label] = sum(d[label] for d in reports) / len(reports)
-            continue
-        for key in reports[0][label].keys(): # for other keys
-            dictionary[key] = sum(d[label][key] for d in reports) / len(reports) # get the average of the values
-        mean_dict[label] = dictionary # add dictionary to mean_dict
-    return mean_dict
-
-def monitoring_plots(result):
-    """
-    plot the training and validation loss, f1 and accuracy
-
-    Parameters
-    ----------
-    result : history from the fitted model 
-
-    Returns
-    -------
-    monitoring plots outputted
-    """
-    # plot the loss
-    pyplot.plot(result.history['loss'], label='train')
-    pyplot.plot(result.history['val_loss'], label='validation')
-    pyplot.legend()
-    pyplot.title('loss')
-    pyplot.show()
-        
-    try:
-        # plot the f1 score
-        pyplot.plot(result.history['f1_score'], label='train')
-        pyplot.plot(result.history['val_f1_score'], label='validation')
-        pyplot.legend()
-        pyplot.title('f1')
-        pyplot.show()
-       
-    except:
-        pyplot.plot(early_stopping.train_f1s, label='train')
-        pyplot.plot(early_stopping.val_f1s, label='validation')
-        pyplot.legend()
-        pyplot.title('f1')
-        pyplot.show()
-     
-def result_summary(test_y, y_prob):
-    """
-    Summary of model evaluation for single model for multiple iterations. Generates the prediction timestep and overall F1 score, overall 
-    classification report and confusion matrix
+# format for encoder-decoder model 
+if n_output == 1:
+    test_y = test_y[:,newaxis,:]
+    train_y = train_y[:,newaxis,:]
     
-    Parameters
-    ----------
-    test_y: one-hot encoded test_y
-    y_prob: probability of class prediction 
+################################
+#### Model parameterization ####
+################################
+# generate class weights, using class weights to deal with data imbalance/skew 
+weights = dict(zip([0,1,2,3], [1,1,3,1])) # create a dictionary with the weights 
+sweights = bmf.get_sample_weights(train_y, weights)
 
-    Returns
-    -------
-    score: overall f1 score
-    scores: timestep level f1 scores
-    class_rep: overall classification report
-    cm: overall confusion matrix
+lookback = train_X.shape[1] # set lookback
+features = train_X.shape[2] # set features
+targets = train_y.shape[2] # set number of targets per timesteps
 
-    """
-    y_label = to_label(test_y)
-    y_pred = to_label(y_prob)
-    if len(y_label.shape) == 1:
-        scores = 'nan'
-    else:
-        scores = [] # create empty list to populate with timestep level predictions
-        for i in range(y_pred.shape[1]): # for each timestep
-            f1 = f1_score(y_label[:,i], y_pred[:,i], average = 'macro') # get the f1 value at the timestep
-            scores.append(f1) # append to the empty scores list
-        y_pred = np.concatenate(y_pred) # merge predictions across timesteps to single vector
-        y_label = np.concatenate(y_label) # merge target values across timesteps to single vector
-    print('sequence level f1 score: ', scores)
-    score = f1_score(y_label, y_pred, average = 'macro') # generate the overall f1 score
-    print('overall f1 score: ', score)
-    
-    class_rep = class_report(y_label, y_pred) # get class report for overall
-    cm = confusion_mat(y_label, y_pred) # get confusion matrix for overall
-    return score, scores, class_rep, cm
+neurons_n = 10 # assign number of neurons
+hidden_n = 10 # assign number of hidden neurons
+td_neurons = 5 # assign number of time distributed neurons
+d_rate = 0.3 # assign dropout rate for regularization
+lr_rate = 0.001 # assign learning rate
 
-def build_ende(train_X, train_y, layers = 2, neurons_n = 50, hidden_n = 20, td_neurons = 20, lr_rate  = 0.001, d_rate = 0.8, mtype = 'LSTM'):
-    """
-    Single encoder-decoder model
+# build model 
+model = Sequential() # create an empty sequential shell 
+# add a masking layer to tell the model to ignore missing values (i.e., values of -1, since that was used to designate missing values)
+model.add(Masking(mask_value = -1, 
+                  input_shape = (lookback, features), 
+                  name = 'Masking')) 
+# set the RNN type
+model.add(LSTM(units =neurons_n, 
+               input_shape = (lookback,features), 
+               name = 'LSTM')) 
+# add dense layer & set activation function
+model.add(Dense(units = hidden_n, 
+                activation = 'relu', 
+                kernel_initializer =  'he_uniform')) 
+# add dropout
+model.add(Dropout(rate= d_rate)) 
+# repeats encoder context for each prediction timestep
+model.add(RepeatVector(n_output)) 
+# add approriate RNN type after repeat vector
+model.add(LSTM(units = neurons_n, 
+               input_shape = (lookback,features), 
+               return_sequences=True)) 
+# make sequential predictions, applies decoder fully connected layer to each prediction timestep
+model.add(TimeDistributed(Dense(units = td_neurons, activation='relu')))
+# applies output layer to each prediction timestep
+model.add(TimeDistributed(Dense(targets, activation = "softmax"))) 
+# compile model 
+model.compile(loss = 'categorical_crossentropy', # use categorical crossentropy loss
+              optimizer = Adam(learning_rate = lr_rate), # set learning rate 
+              metrics = [bmf.f1,'accuracy'], # monitor metrics
+              sample_weight_mode = 'temporal') # add sample weights, since class weights are not supported in 3D
 
-    Parameters
-    ----------
-    train_X : training features
-    train_y : training predictions
-    layers : number of layers The default is 2.
-    neurons_n : number of neurons. The default is 50.
-    hidden_n : number of hidden neurons. The default is 20.
-    td_neurons : number of timde distributed neurons. The default is 20.
-    lr_rate : Learning rate. The default is 0.001.
-    d_rate : dropout rate. The default is 0.8.
-    mtype : model type, should be LSTM or GRU. The default is 'LSTM'.
+model.summary() # examine model architecture
+# Model: "sequential"
+# _________________________________________________________________
+# Layer (type)                 Output Shape              Param #   
+# =================================================================
+# Masking (Masking)            (None, 5, 26)             0         
+# _________________________________________________________________
+# LSTM (LSTM)                  (None, 10)                1480      
+# _________________________________________________________________
+# dense (Dense)                (None, 10)                110       
+# _________________________________________________________________
+# dropout (Dropout)            (None, 10)                0         
+# _________________________________________________________________
+# repeat_vector (RepeatVector) (None, 1, 10)             0         
+# _________________________________________________________________
+# lstm (LSTM)                  (None, 1, 10)             840       
+# _________________________________________________________________
+# time_distributed (TimeDistri (None, 1, 5)              55        
+# _________________________________________________________________
+# time_distributed_1 (TimeDist (None, 1, 4)              24        
+# =================================================================
+# Total params: 2,509
+# Trainable params: 2,509
+# Non-trainable params: 0
+# _________________________________________________________________
 
-    Returns
-    -------
-    model : compiled model
+# fit model
+history = model.fit(train_X, # features
+                    train_y, # targets
+                    validation_data = (test_X, test_y), # add validation data
+                    epochs = 50, # epochs 
+                    batch_size = 512, # batch size
+                    sample_weight = sweights, # add sample weights
+                    shuffle=False, # determine whether to shuffle order of data, False since we want to preserve time series
+                    verbose = 2) # status print outs
 
-    """
-    lookback = train_X.shape[1] # set lookback
-    features = train_X.shape[2] # set features
-    n_outputs = train_y.shape[1] # set prediction timesteps
-    targets = train_y.shape[2] # set number of targets per timesteps
-	# define model
-    model = Sequential() # create empty sequential model
-    model.add(Masking(mask_value = -1, input_shape = (lookback, features), name = 'Masking')) # add a masking layer to tell the model to ignore missing values
-    if mtype == 'LSTM': # if the model is an LSTM
-        model.add(LSTM(units =neurons_n, input_shape = (lookback,features), name = 'LSTM')) # set the RNN type
-    else: # otherwise set the GRU as the model type
-        model.add(GRU(units =neurons_n, input_shape = (lookback,features), name = 'GRU')) # set the RNN type
-    for i in range(layers): # for each layer  
-        model.add(Dense(units = hidden_n, activation = 'relu', kernel_initializer =  'he_uniform')) # add a dense layer 
-        model.add(Dropout(rate= d_rate)) # and add a dropout layer
-    model.add(RepeatVector(n_outputs)) # repeats encoder context for each prediction timestep
-    if mtype == 'LSTM': # if the model type is LSTM 
-        model.add(LSTM(units =neurons_n, input_shape = (lookback,features), return_sequences=True)) # set the RNN type
-    else: # else set the layer to GRU
-        model.add(GRU(units =neurons_n, input_shape = (lookback,features), return_sequences = True)) # set the RNN type
-    model.add(TimeDistributed(Dense(units = td_neurons, activation='relu'))) # used to make sequential predictions, applies decoder fully connected layer to each prediction timestep
-    model.add(TimeDistributed(Dense(targets, activation = "softmax"))) # applies output layer to each prediction timestep
-    model.compile(loss = 'categorical_crossentropy', optimizer = Adam(learning_rate = lr_rate), metrics = 'accuracy', sample_weight_mode = 'temporal') # compile the model
-    return model
+history.history.keys() # examine outputs
+# dict_keys(['loss', 'f1', 'accuracy', 'val_loss', 'val_f1', 'val_accuracy'])
 
-# generate sample weights as inverse proportion of frequency in dataset
-weights = dict(zip([0,1,2,3], [34,11,22,45])) # create a dictionary with the weights 
-sample_weights = get_sample_weights(train_y, weights) # get sample weights
+# monitor and evaluate the results
+mon_plots = bmf.monitoring_plots(history, ['loss','f1','accuracy']) # generate loss and performance curves
+mon_plots.savefig(path+'manual_ende_rnn_lstm_monitoring.jpg', dpi=150) # save monitoring plot and examine in output file
+# 
+loss, f1, accuracy = model.evaluate(test_X, test_y) # evaluate the model (also could just extract from the fit directly)
+# loss: 0.445
+# f1: 0.229
+# accuracy: 0.858
 
-mod_ende = build_ende(train_X, train_y, layers = 2, neurons_n = 50, hidden_n = 20, td_neurons = 20, lr_rate  = 0.001, d_rate = 0.8, mtype = 'LSTM')
-early_stopping = F1EarlyStopping(validation_data = [test_X, test_y], train_data = [train_X, train_y], patience=5)
-start_time = time.time() # generate the start time to keep track of run time
-results = mod_ende.fit(train_X, train_y, 
-                       validation_data = (test_X,test_y),
-                       epochs = 4, 
-                       batch_size = 128,
-                       shuffle=False,
-                       sample_weight = sample_weights,
-                       class_weight = None,
-                       verbose = 2,
-                       callbacks = [early_stopping])
-print('took', (time.time()-start_time)/60, ' minutes') # print the time lapsed 
+y_val = bmf.one_hot_decode(test_y) # retrieve labels for test targets
+y_val[0:10] # view subset target labels
+# [1, 3, 1, 1, 1, 1, 1, 1, 1, 1]
 
-monitoring_plots(results)
-y_prob = mod_ende.predict(test_X) # get predictions
-score, scores, class_rep, cm = result_summary(test_y, y_prob) # get metrics
+y_prob = model.predict(test_X) # get prediction prob for each class
+y_prob = y_prob.reshape(y_prob.shape[0],y_prob.shape[2]) # get rid of dummy 2nd dimension 
+y_prob[0:10,:] # print subset
+# array([[0.46956554, 0.3628467 , 0.02484568, 0.142742  ],
+#        [0.16406503, 0.7005112 , 0.03209489, 0.10332887],
+#        [0.18590716, 0.491183  , 0.06099619, 0.26191372],
+#        [0.1086543 , 0.7303062 , 0.04109134, 0.11994815],
+#        [0.06124726, 0.85508233, 0.02818266, 0.05548776],
+#        [0.04101677, 0.8982838 , 0.02270741, 0.03799199],
+#        [0.03531985, 0.9124129 , 0.01978673, 0.03248053],
+#        [0.02661475, 0.9351574 , 0.01411079, 0.02411705],
+#        [0.02724199, 0.93386066, 0.01441905, 0.02447829],
+#        [0.02744985, 0.93352395, 0.01450501, 0.0245211 ]], dtype=float32)
+
+# generate prediction labels
+y_pred = bmf.to_label(y_prob,
+                      prob = True) # prob = True to draw from probability distribution, prob = False to pred based on max probability
+y_pred[0:10] # view subset of predictions
+# [3, 0, 1, 1, 1, 1, 1, 1, 1, 1] can see that 2 predictions differ from the target
+
+cm_fig = bmf.confusion_mat(y_val, y_pred) # generate confusion matrix 
+bmf.class_report(y_val, y_pred) # generate classification report
+
+# calculte overall f1 score and timestep f1 scores, as well as output confusion matrix and classification report in pdf
+lstm_score, _, _, _ = bmf.result_summary(y_test, 
+                                         y_prob, 
+                                         path, 
+                                         'manual_ende_rnn_lstm_evaluation') 
+# lstm_score = 0.325
+# view output file results

@@ -201,13 +201,12 @@ def to_label(data, prob = False):
             for i in range(data.shape[1]): # for each timestep
                 y_lab = one_hot_decode(data[:,i,:]) # one-hot decode
                 y_label.append(y_lab) # append the decoded value set to the list
-                y_label = np.column_stack(y_label) # stack the sets in the list to make an array where each column contains the decoded labels for each timestep
         else:
             for i in range(data.shape[1]): # for each timestep
                 y_lab = np.random.multinomial(1, data[:,i,:])
                 y_lab = one_hot_decode(y_lab) # one-hot decode
-                y_label.append(y_lab) # append the decoded value set to the list
-                y_label = np.column_stack(y_label) # stack the sets in the list to make an array where each column contains the decoded labels for each timestep
+                y_label.append(y_lab) # append the decoded value set to the list            
+                y_label = np.vstack(y_label) # stack the sets in the list to make an array where each column contains the decoded labels for each timestep
     return y_label  # return the labels 
 
 def get_sample_weights(train_y, weights):
@@ -441,7 +440,7 @@ def build_rnn(train_X, train_y, neurons_n=10, hidden_n=10, lr_rate=0.001, d_rate
     d_rate : float, drop out rate (the default is 0.2).
     layers: 1 
     mtype: string, model type (LSTM or GRU only, default is LSTM)
-    cat_loss: boolean, loss type of True categorical cross-entrophy loss is used, if False f1 loss is used. The default is True, 
+    cat_loss: boolean, loss type of True categorical crossentrophy loss is used, if False f1 loss is used. The default is True, 
     
     Returns
     -------
@@ -451,20 +450,42 @@ def build_rnn(train_X, train_y, neurons_n=10, hidden_n=10, lr_rate=0.001, d_rate
     lookback = train_X.shape[1] # get the lookback period
     targets = train_y.shape[1] # get the target number
     
-    model = Sequential() # create an empty sequential shell 
-    model.add(Masking(mask_value = -1, input_shape = (lookback, features), name = 'Masking')) # add a masking layer to tell the model to ignore missing values (i.e., values of -1)
+    # create an empty sequential shell 
+    model = Sequential() 
+    # add a masking layer to tell the model to ignore missing values (i.e., values of -1)
+    model.add(Masking(mask_value = -1, 
+                      input_shape = (lookback, features), 
+                      name = 'Masking')) 
+    # set RNN type
     if mtype == 'LSTM': # if the model type is LSTM
-        model.add(LSTM(units =neurons_n, input_shape = (lookback,features), name = 'LSTM')) # set the RNN type
+        # add LSTM layer
+        model.add(LSTM(units =neurons_n, 
+                       input_shape = (lookback,features), 
+                       name = 'LSTM')) 
     else:
-        model.add(GRU(units =neurons_n, input_shape = (lookback,features), name = 'GRU')) # set the RNN type
-    for i in range(layers): # for each hidden layer 
-        model.add(Dense(units = hidden_n, activation = 'relu', kernel_initializer =  'he_uniform')) # add dense layer
-        model.add(Dropout(rate= d_rate)) # add dropout
-    model.add(Dense(units = targets, activation = "softmax", name = 'Output')) # add output layer
-    if cat_loss == True:
-        model.compile(loss = 'categorical_crossentropy', optimizer = Adam(learning_rate = lr_rate), metrics= [F1Score(num_classes=targets, average = 'macro'),'accuracy']) # compile model, set learning rate and metrics
-    else:
-        model.compile(loss = f1_loss, optimizer = Adam(learning_rate = lr_rate),  metrics= [F1Score(num_classes=targets, average = 'macro'),'accuracy']) # compile model, set learning rate and metrics
+        # add GRU layer
+        model.add(GRU(units = neurons_n, 
+                      input_shape = (lookback,features), 
+                      name = 'GRU')) # set the RNN type
+    for i in range(layers): # for each hidden layer
+        # add dense layer
+        model.add(Dense(units = hidden_n, 
+                        activation = 'relu', 
+                        kernel_initializer =  'he_uniform')) 
+        model.add(Dropout(rate = d_rate)) # add dropout
+    # add output layer
+    model.add(Dense(units = targets, 
+                    activation = "softmax", 
+                    name = 'Output')) 
+    # compile model 
+    if cat_loss == True: # if true
+        model.compile(loss = 'categorical_crossentropy', # use categorical crossentropy loss
+                      optimizer = Adam(learning_rate = lr_rate), # set learning rate 
+                      metrics= [F1Score(num_classes=targets, average = 'macro'),'accuracy']) # monitor metrics
+    else: 
+        model.compile(loss = f1_loss, # otherwise use f1 loss 
+                      optimizer = Adam(learning_rate = lr_rate), # set learning rate 
+                      metrics= [F1Score(num_classes=targets, average = 'macro'),'accuracy']) # monitor metrics
     return model 
 
 def build_ende(train_X, train_y, neurons_n = 10, hidden_n = 10, td_neurons = 10, lr_rate  = 0.001, d_rate = 0.2, layers = 1, mtype = 'LSTM', cat_loss = True):
@@ -493,24 +514,57 @@ def build_ende(train_X, train_y, neurons_n = 10, hidden_n = 10, td_neurons = 10,
     features = train_X.shape[2] # set features
     n_outputs = train_y.shape[1] # set prediction timesteps
     targets = train_y.shape[2] # set number of targets per timesteps
-	# define model
-    model = Sequential() # create empty sequential model
-    model.add(Masking(mask_value = -1, input_shape = (lookback, features), name = 'Masking')) # add a masking layer to tell the model to ignore missing values
+    
+    # create an empty sequential shell 
+    model = Sequential() 
+    # add a masking layer to tell the model to ignore missing values (i.e., values of -1)
+    model.add(Masking(mask_value = -1, 
+                      input_shape = (lookback, features), 
+                      name = 'Masking')) 
+    # set RNN type
     if mtype == 'LSTM': # if the model is an LSTM
-        model.add(LSTM(units =neurons_n, input_shape = (lookback,features), name = 'LSTM')) # set the RNN type
+        # add LSTM layer
+        model.add(LSTM(units =neurons_n, 
+                       input_shape = (lookback,features), 
+                       name = 'LSTM')) 
     else: # otherwise set the GRU as the model type
-        model.add(GRU(units =neurons_n, input_shape = (lookback,features), name = 'GRU')) # set the RNN type
-    for i in range(layers): # for each layer  
-        model.add(Dense(units = hidden_n, activation = 'relu', kernel_initializer =  'he_uniform')) # add a dense layer 
-        model.add(Dropout(rate= d_rate)) # and add a dropout layer
+        # add GRU layer
+        model.add(GRU(units = neurons_n, 
+                      input_shape = (lookback,features), 
+                      name = 'GRU'))
+    for i in range(layers): # for each hidden layer  
+        # add a dense layer
+        model.add(Dense(units = hidden_n, 
+                        activation = 'relu', 
+                        kernel_initializer =  'he_uniform')) 
+        # add a dropout layer
+        model.add(Dropout(rate = d_rate))
     model.add(RepeatVector(n_outputs)) # repeats encoder context for each prediction timestep
-    if mtype == 'LSTM': # if the model type is LSTM 
-        model.add(LSTM(units =neurons_n, input_shape = (lookback,features), return_sequences=True)) # set the RNN type
+    # add approriate RNN type after repeat vector
+    if mtype == 'LSTM': 
+        model.add(LSTM(units = neurons_n, 
+                       input_shape = (lookback,features), 
+                       return_sequences=True)) 
     else: # else set the layer to GRU
-        model.add(GRU(units =neurons_n, input_shape = (lookback,features), return_sequences = True)) # set the RNN type
-    model.add(TimeDistributed(Dense(units = td_neurons, activation='relu'))) # used to make sequential predictions, applies decoder fully connected layer to each prediction timestep
-    model.add(TimeDistributed(Dense(targets, activation = "softmax"))) # applies output layer to each prediction timestep
-    model.compile(loss = 'categorical_crossentropy', optimizer = Adam(learning_rate = lr_rate), metrics = 'accuracy', sample_weight_mode = 'temporal') # compile the model
+        model.add(GRU(units = neurons_n, 
+                      input_shape = (lookback,features),
+                      return_sequences = True)) 
+    # make sequential predictions, applies decoder fully connected layer to each prediction timestep
+    model.add(TimeDistributed(Dense(units = td_neurons, activation='relu')))
+    # applies output layer to each prediction timestep
+    model.add(TimeDistributed(Dense(targets, activation = "softmax"))) 
+    # compile model 
+    if cat_loss == True: # if true
+        # compile model 
+        model.compile(loss = 'categorical_crossentropy', # use categorical crossentropy loss
+                      optimizer = Adam(learning_rate = lr_rate), # set learning rate 
+                      metrics = [f1,'accuracy'], # monitor metrics
+                      sample_weight_mode = 'temporal') # add sample weights, since class weights are not supported in 3D
+    else: 
+        model.compile(loss = f1_loss, # otherwise use f1 loss 
+                      optimizer = Adam(learning_rate = lr_rate), # set learning rate 
+                      metrics = [f1,'accuracy'], # monitor metrics
+                      sample_weight_mode = 'temporal') # add sample weights, since class weights are not supported in 3D
     return model
 
 def hyp_rnn_nest(params, features, targets):
@@ -833,26 +887,6 @@ def monitoring_plots(result, metrics):
         pyplot.plot(result.history['val_'+metrics[i]], label='validation')
         pyplot.legend()
         pyplot.title(metrics[i])
-    # # plot the loss
-    # pyplot.subplot(1,3,1)
-    # pyplot.plot(result.history['loss'], label='train')
-    # pyplot.plot(result.history['val_loss'], label='validation')
-    # pyplot.legend()
-    # pyplot.title('loss')
-        
-    # # plot the f1 score
-    # pyplot.subplot(1,3,2)
-    # pyplot.plot(result.history['f1_score'], label='train')
-    # pyplot.plot(result.history['val_f1_score'], label='validation')
-    # pyplot.legend()
-    # pyplot.title('f1')
-    
-    # # plot the accuracy score
-    # pyplot.subplot(1,3,3)
-    # pyplot.plot(result.history['accuracy'], label='train')
-    # pyplot.plot(result.history['val_accuracy'], label='validation')
-    # pyplot.legend()
-    # pyplot.title('accuracy')
     fig.tight_layout()
     return fig
     
@@ -941,8 +975,8 @@ def result_summary(test_y, y_prob, path, filename):
         scores = 'nan'
     else:
         scores = [] # create empty list to populate with timestep level predictions
-        for i in range(y_pred.shape[1]): # for each timestep
-            f1 = f1_score(y_label[:,i], y_pred[:,i], average = 'macro') # get the f1 value at the timestep
+        for i in range(len(y_pred)): # for each timestep
+            f1 = f1_score(y_label[i,:], y_pred[i,:], average = 'macro') # get the f1 value at the timestep
             scores.append(f1) # append to the empty scores list
         y_pred = np.concatenate(y_pred) # merge predictions across timesteps to single vector
         y_label = np.concatenate(y_label) # merge target values across timesteps to single vector

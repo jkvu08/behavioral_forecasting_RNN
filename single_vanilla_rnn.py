@@ -134,8 +134,8 @@ history.history.keys() # examine outputs
 # dict_keys(['loss', 'f1_score', 'accuracy', 'val_loss', 'val_f1_score', 'val_accuracy'])
 
 # monitor and evaluate the results
-mon_plots = bmf.monitoring_plots(history, ['loss','f1_score','accuracy']) # generate monitoring plot
-mon_plots.savefig(path+'manual_vanilla_rnn_LSTM_monitoring.jpg', dpi=150) # save monitoring plot and examine in output file
+mon_plots = bmf.monitoring_plots(history, ['loss','f1_score','accuracy']) # generate loss and performance curves
+mon_plots.savefig(path+'manual_vanilla_rnn_lstm_monitoring.jpg', dpi=150) # save monitoring plot and examine in output file
 # signs of overfit to training, might want to add early stopping
 
 loss, f1, accuracy = model.evaluate(test_X, test_y) # evaluate the model (also could just extract from the fit directly)
