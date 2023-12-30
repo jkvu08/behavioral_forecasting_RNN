@@ -7,7 +7,7 @@ Created on Sun Oct 31 10:23:29 2021
 
 import numpy as np
 from numpy import random, newaxis
-from matplotlib import pyplot
+from matplotlib import pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 import pandas as pd
 from pandas import read_csv, DataFrame, concat, Series, merge
@@ -195,7 +195,7 @@ def to_label(data, prob = False):
                 y_lab = np.random.multinomial(1, data[i,:])
                 y_label.append(y_lab) # append the decoded value set to the list
             y_label = np.array(y_label)
-            y_label = one_hot_decode(y_label)
+            y_label = np.array(one_hot_decode(y_label))
     else: # otherwise 
         if prob == False:    
             for i in range(data.shape[1]): # for each timestep
@@ -203,10 +203,14 @@ def to_label(data, prob = False):
                 y_label.append(y_lab) # append the decoded value set to the list
         else:
             for i in range(data.shape[1]): # for each timestep
-                y_lab = np.random.multinomial(1, data[:,i,:])
-                y_lab = one_hot_decode(y_lab) # one-hot decode
-                y_label.append(y_lab) # append the decoded value set to the list            
-                y_label = np.vstack(y_label) # stack the sets in the list to make an array where each column contains the decoded labels for each timestep
+                y_set = []
+                for j in range(data.shape[0]):    
+                    y_lab = np.random.multinomial(1, data[j,i,:])  
+                    y_set.append(y_lab)
+                y_set = np.array(y_set)
+                y_set = np.array(one_hot_decode(y_set))
+                y_label.append(y_set) # append the decoded value set to the list     
+        y_label = np.column_stack(y_label) # stack the sets in the list to make an array where each column contains the decoded labels for each timestep
     return y_label  # return the labels 
 
 def get_sample_weights(train_y, weights):
@@ -223,7 +227,7 @@ def get_sample_weights(train_y, weights):
 
     """
     train_lab = to_label(train_y) # get the one-hot decoded labels for the training targets
-    train_lab = train_lab.astype('float64') # convert the datatype to match the weights datatype
+    #train_lab = train_lab.astype('float64') # convert the datatype to match the weights datatype
     train_labels = np.copy(train_lab)
     for key, value in weights.items(): # replace each label with its pertaining weight according to the weights dictionary
         train_labels[train_lab == key] = value
@@ -279,155 +283,6 @@ def f1_loss(y_true, y_pred):
                   f1) # else set to f1 score
     return 1 - K.mean(f1) # calculate loss f1
 
-def eval_f1_iter(model, params, train_X, train_y, test_X, test_y, patience=50, max_epochs = 300, atype = 'VRNN', n = 1):
-    """
-    Fit and evaluate model n number of times. Get the average of those runs
-
-    Parameters
-    ----------
-    model : model
-    params : hyperparameters
-    train_X : training features
-    train_y :  training targets
-    test_X : testing features
-    test_y : testing targets
-    patience: early stopping patience value
-    max_epochs: number of epochs to run
-    atype: architecture type (VRNN or ENDE)
-    n : number of iterations to run for a single model
-
-    Returns
-    -------
-    eval_run : metrics for each iteration
-    avg_val: average of the metrics average: val_f1, val_loss, train_f1, train_loss 
-    """
-    # assign class weights 
-    weights = dict(zip([0,1,2,3], 
-                       [params['weights_0'], 
-                        params['weights_1'], 
-                        params['weights_2'], 
-                        params['weights_3']]))
-    # assign the callback and weight type based on the model type
-    if atype == 'VRNN':
-        class_weights = weights # assign class weights as weights
-        sample_weights = None
-    elif atype == 'ENDE':
-        class_weights = None 
-        total = sum(weights.values()) # get the sum of the weights to normalize
-        sample_weights = {ky: val / total for ky, val in weights.items()} # get the sample weight values
-        sample_weights = get_sample_weights(train_y, sample_weights) # generate the formatted sample weights 
-    else:
-        raise Exception ('invalid model type')
-    early_stopping = EarlyStopping(patience= patience, monitor='val_loss', mode = 'min', restore_best_weights=True, verbose=0)
-    eval_run = [] # create empty list for the evaluations
-    for i in range(n): # for each iteration
-        # fit the model 
-        history = model.fit(train_X, 
-                            train_y, 
-                            epochs = max_epochs, 
-                            batch_size = params['batch_size'],
-                            verbose = 2,
-                            shuffle=False,
-                            validation_data = (test_X, test_y),
-                            sample_weight = sample_weights,
-                            class_weight = class_weights,
-                            callbacks = [early_stopping])
-        # pull out monitoring metrics
-        if len(history.history['loss']) == max_epochs: # if early stopping not activated then
-            params['epochs'] = max_epochs # assign the epochs to the maximum epochs
-            val_loss = history.history['val_loss'][-1] # get the last val loss
-            train_loss = history.history['loss'][-1] # get the last train loss
-            f1 = history.history['val_f1'][-1] # pull the last validation f1 from the history
-            train_f1 = history.history['f1'][-1] # pull the last train f1 from the history
-        else: # otherwise if early stopping was activate
-            params['epochs'] = len(history.history['loss'])-patience # assign stopping epoch as the epoch before improvements dropped
-            val_loss = history.history['val_loss'][-patience-1] # assign validation loss from the stopping epochs
-            train_loss = history.history['loss'][-patience-1] # assign trainn loss from the stopping epochs
-            f1 = history.history['val_f1'][-patience-1] # assign the validation f1 from the stopping epoch
-            train_f1 = history.history['f1'][-patience-1] # assign the training f1 from the stopping epoch
-        eval_run.append([f1,val_loss,train_f1,train_loss])
-    avg_val = np.mean(eval_run,axis=0)
-    return eval_run, avg_val[0], avg_val[1], avg_val[2], avg_val[3]
-
-# def eval_f1_iter_ende(model, params, train_X, train_y, test_X, test_y, patience=50, max_epochs = 300, atype = 'VRNN', n = 1):
-#     """
-#     Fit and evaluate model n number of times. Get the average of those runs
-
-#     Parameters
-#     ----------
-#     model : model
-#     params : hyperparameters
-#     train_X : training features
-#     train_y :  training targets
-#     test_X : testing features
-#     test_y : testing targets
-#     patience: early stopping patience value
-
-#     max_epochs: number of epochs to run
-#     atype: architecture type (VRNN or ENDE)
-#     n : number of iterations
-    
-#     Returns
-#     -------
-#     eval_run : metrics for each iteration
-#     avg_val: average of the metrics average: val_f1, val_loss, train_f1, train_loss 
-#     """
-#     # assign the weights 
-#     weights = dict(zip([0,1,2,3], [params['weights_0'], params['weights_1'], params['weights_2'], params['weights_3']]))
-#     early_stopping = EarlyStopping(patience= patience, monitor='val_loss', mode = 'min', restore_best_weights=True, verbose=0) 
-#     # assign the callback and weight type based on the model type
-#     if atype == 'VRNN':
-#         early_stopping = EarlyStopping(patience= patience, monitor='val_f1_score', mode = 'max', restore_best_weights=True, verbose=0)
-#         class_weights = weights # assign class weights as weights
-#         sample_weights = None
-#         calls = [early_stopping]
-#     else:
-#      #   early_stopping = F1EarlyStopping(validation_data=[test_X, test_y], train_data=[train_X, train_y], patience= patience)
-#        # f1_metric = F1Metrics(validation_data=[test_X, test_y], train_data=[train_X, train_y])
-#         class_weights = None 
-#         total = sum(weights.values()) # get the sum of the weights to normalize
-#         sample_weights = {ky: val / total for ky, val in weights.items()} # get the sample weight values
-#         sample_weights = get_sample_weights(train_y, weights) # generate the formatted sample weights 
-#         calls = [early_stopping, f1_metric]
-#     eval_run = [] # create empty list for the evaluations
-#     for i in range(n): # for each iteration
-#         # fit the model 
-#         history = model.fit(train_X, train_y, 
-#                             epochs = max_epochs, 
-#                             batch_size = params['batch_size'],
-#                             verbose = 2,
-#                             shuffle=False,
-#                             validation_data = (test_X, test_y),
-#                             sample_weight = sample_weights,
-#                             class_weight = class_weights,
-#                             callbacks = [early_stopping])
-#         # pull out monitoring metrics
-#         if len(history.history['loss']) == max_epochs:
-#             params['epochs'] = max_epochs # assign the epochs to the maximum epochs
-#             val_loss = history.history['val_loss'][-1] # get the last val loss
-#             train_loss = history.history['loss'][-1] # get the last train loss
-#             if atype == 'ENDE': # if the model is an encoder-decoder
-#                 f1 = early_stopping.val_f1s[-1] # then pull the last validation f1 from the early stopping metric
-#                 train_f1 = early_stopping.train_f1s[-1] # pull the last training f1 from the early stopping metric
-#                 f1 = f1_metric['val_f1'][-1] # pull the last validation f1 from the history
-#               #  train_f1 = history.history['get_f1'][-1] # pull the last train f1 from the history
-#             else: # otherwise 
-#                 f1 = history.history['val_f1_score'][-1] # pull the last validation f1 from the history
-#                 train_f1 = history.history['f1_score'][-1] # pull the last train f1 from the history
-#         else: # otherwise if early stopping was activate
-#             params['epochs'] = len(history.history['loss'])-patience # assign stopping epoch as the epoch before no more improvements were seen in the f1 score
-#             val_loss = history.history['val_loss'][-patience-1] # assign validation loss from the stopping epochs
-#             train_loss = history.history['loss'][-patience-1] # assign trainn loss from the stopping epochs
-#             if atype == 'ENDE': # if the model is the encoder-decoder
-#                 f1 = history.history['val_get_f1'][-patience-1] # assign the training f1 from the stopping epoch
-#                 train_f1 = history.history['get_f1'][-patience-1] # assign the training f1 from the stopping epoch
-#             else: # otherwise
-#                 f1 = history.history['val_f1_score'][-patience-1] # assign the training f1 from the stopping epoch
-#                 train_f1 = history.history['f1_score'][-patience-1] # assign the training f1 from the stopping epoch
-#         eval_run.append([np.nan,val_loss,np.nan,train_loss])
-#    # avg_val = np.mean(eval_run,axis=0)
-#     return eval_run, np.nan, val_loss, np.nan, train_loss
-
 def build_rnn(train_X, train_y, neurons_n=10, hidden_n=10, lr_rate=0.001, d_rate = 0.2, layers = 1, mtype = 'LSTM', cat_loss = True):
     """
     Vanilla LSTM for single timestep output prediction (one-to-one or many-to-one)
@@ -481,11 +336,11 @@ def build_rnn(train_X, train_y, neurons_n=10, hidden_n=10, lr_rate=0.001, d_rate
     if cat_loss == True: # if true
         model.compile(loss = 'categorical_crossentropy', # use categorical crossentropy loss
                       optimizer = Adam(learning_rate = lr_rate), # set learning rate 
-                      metrics= [F1Score(num_classes=targets, average = 'macro'),'accuracy']) # monitor metrics
+                      metrics = [f1, 'accuracy']) # monitor metrics
     else: 
         model.compile(loss = f1_loss, # otherwise use f1 loss 
                       optimizer = Adam(learning_rate = lr_rate), # set learning rate 
-                      metrics= [F1Score(num_classes=targets, average = 'macro'),'accuracy']) # monitor metrics
+                      metrics = [f1, 'accuracy']) # monitor metrics
     return model 
 
 def build_ende(train_X, train_y, neurons_n = 10, hidden_n = 10, td_neurons = 10, lr_rate  = 0.001, d_rate = 0.2, layers = 1, mtype = 'LSTM', cat_loss = True):
@@ -567,6 +422,220 @@ def build_ende(train_X, train_y, neurons_n = 10, hidden_n = 10, td_neurons = 10,
                       sample_weight_mode = 'temporal') # add sample weights, since class weights are not supported in 3D
     return model
 
+#################################
+#### Single model evaluation ####
+#################################
+def monitoring_plots(result, metrics):
+    """
+    plot the training and validation loss, f1 and accuracy
+
+    Parameters
+    ----------
+    result : history from the fitted model 
+
+    Returns
+    -------
+    monitoring plots outputted
+    """
+    n = len(metrics)
+    fig, ax = plt.subplots(1,n, figsize = (2*n+2,2))
+    for i in range(n):
+        plt.subplot(1,n,i+1)
+        plt.plot(result.history[metrics[i]], label='train')
+        plt.plot(result.history['val_'+metrics[i]], label='validation')
+        plt.legend()
+        plt.title(metrics[i])
+    fig.tight_layout()
+    return fig
+    
+def confusion_mat(y, y_pred):
+    """
+    generates and visualizes the confusion matrix
+
+    Parameters
+    ----------
+    y : labeled true values
+    y_pred : labeled predictions
+
+    Returns
+    -------
+    cm : confusion matrix
+
+    """
+    labels = ['feeding','resting','socializing','traveling']
+    fig, ax = plt.subplots(1,2,figsize=(6,2))
+    cm_norm = confusion_matrix(y,y_pred, normalize = 'true') # normalized confusion matrix to get proportion instead of counts
+    cm_count = confusion_matrix(y,y_pred) # get confusion matrix without normalization (i.e., counts)
+    sns.set(font_scale=0.5)
+    plt.subplot(1,2,1)
+    sns.heatmap(cm_count, 
+                    xticklabels=labels, 
+                    yticklabels=labels, 
+                    annot=True, 
+                    fmt ='d') 
+    plt.yticks(rotation=0) 
+    plt.xticks(rotation=0) 
+    plt.ylabel('True label', fontsize = 7)
+    plt.xlabel('Predicted label', fontsize = 7)
+    plt.subplot(1,2,2)
+    sns.heatmap(cm_norm, 
+                xticklabels=labels, 
+                yticklabels=labels, 
+                annot=True) 
+    plt.yticks(rotation=0) 
+    plt.xticks(rotation=0) 
+    plt.ylabel('True label', fontsize = 7)
+    plt.xlabel('Predicted label', fontsize = 7)
+    fig.tight_layout()
+    plt.show(block=True)
+    return fig
+
+def class_report(y, y_pred):
+    """
+    generate the class report to get the recall, precision, f1 and accuracy per class and overall
+
+    Parameters
+    ----------
+    y : labeled true values
+    y_pred : labeled predictions
+
+    Returns
+    -------
+    class_rep : classification report
+
+    """
+    class_rep = classification_report(y,y_pred, zero_division = 0, output_dict = True) # generatate classification report as dictionary
+    class_rep = DataFrame(class_rep).transpose() # convert dictionary to dataframe
+    return class_rep    
+
+def result_summary(test_y, y_prob, path, filename):
+    """
+    Summary of model evaluation for single model for multiple iterations. Generates the prediction timestep and overall F1 score, overall 
+    classification report and confusion matrix. Outputs classification report nad confusion matrix to pdf.
+    
+    Parameters
+    ----------
+    test_y: one-hot encoded test_y
+    y_prob: probability of class prediction 
+
+    Returns
+    -------
+    score: overall f1 score
+    scores: timestep level f1 scores
+    class_rep: overall classification report
+    cm: overall confusion matrix
+
+    """
+    y_label = to_label(test_y) # observed target
+    y_pred = to_label(y_prob, prob = True) # predicted target
+    
+    if len(y_label.shape) == 1: # no multiple scores
+        scores = 'nan'
+    else:
+        scores = [] # create empty list to populate with timestep level predictions
+        for i in range(len(y_pred)): # for each timestep
+            f1 = f1_score(y_label[i,:], y_pred[i,:], average = 'macro') # get the f1 value at the timestep
+            scores.append(f1) # append to the empty scores list
+        y_pred = np.concatenate(y_pred) # merge predictions across timesteps to single vector
+        y_label = np.concatenate(y_label) # merge target values across timesteps to single vector
+    print('sequence level f1 score: ', scores)
+    score = f1_score(y_label, y_pred, average = 'macro') # generate the overall f1 score
+    print('overall f1 score: ', score)
+    
+    class_rep = class_report(y_label, y_pred) # get class report for overall
+    
+    with PdfPages(path+filename+'.pdf') as pdf:
+        cm = confusion_mat(y_label, y_pred) # get confusion matrix for overall
+        pdf.savefig(cm) # save figure
+        plt.close() # close page
+        plt.figure(figsize=(6, 2)) # assign figure size
+        plt.table(cellText=np.round(class_rep.values,4),
+                      colLabels = class_rep.columns, 
+                      rowLabels=class_rep.index,
+                      loc='center',
+                      fontsize = 9)
+        plt.axis('tight') 
+        plt.axis('off')
+        pdf.savefig() # save figure
+        plt.close() # close page
+    return score, scores, class_rep, cm
+
+def eval_iter(model, params, train_X, train_y, test_X, test_y, patience = 0 , max_epochs = 300, atype = 'VRNN', n = 1):
+    """
+    Fit and evaluate model n number of times. Get the average of those runs
+
+    Parameters
+    ----------
+    model : model
+    params : hyperparameters
+    train_X : training features
+    train_y :  training targets
+    test_X : testing features
+    test_y : testing targets
+    patience: nonegative integer early stopping patience value. Default is 0
+    max_epochs: number of epochs to run. Default is 300
+    atype: architecture type (VRNN or ENDE). Default is VRNN
+    n : number of iterations to run for a single model. Default is 1
+
+    Returns
+    -------
+    eval_run : metrics for each iteration
+    avg_val: average of the metrics average: val_f1, val_loss, train_f1, train_loss 
+    """
+    # assign class weights
+    weights = dict(zip([0,1,2,3], 
+                       [params['weights_0'], 
+                        params['weights_1'], 
+                        params['weights_2'], 
+                        params['weights_3']]))
+    # assign the callback and weight type based on the model type
+    if atype == 'VRNN':
+        class_weights = weights # assign class weights as weights
+        sample_weights = None
+    elif atype == 'ENDE':
+        class_weights = None 
+        sample_weights = get_sample_weights(train_y, weights) # generate the formatted sample weights 
+    else:
+        raise Exception ('invalid model type')
+    eval_run = [] # create empty list for the evaluations
+    if patience > 0:
+        early_stopping = EarlyStopping(patience = patience, monitor='val_loss', mode = 'min', restore_best_weights=True, verbose=0)
+        callback = [early_stopping]
+    else:
+        callback = None
+    for i in range(n): # for each iteration
+        # fit the model 
+        history = model.fit(train_X, 
+                            train_y[:,newaxis,:], 
+                            validation_data = (test_X, test_y[:,newaxis,:]),
+                            epochs = max_epochs, 
+                            batch_size = params['batch_size'],
+                            sample_weight = sample_weights,
+                            class_weight = class_weights,
+                            verbose = 2,
+                            shuffle=False,
+                            callbacks = callback)
+        mod_eval = []
+        # pull out monitoring metrics
+        if len(history.history['loss']) == max_epochs: # if early stopping not activated then
+            mod_eval.append(max_epochs) # assign the epochs to the maximum epochs
+            for v in history.history.values():
+                mod_eval.append(v[-1]) # append ending metrics
+        else: # otherwise if early stopping was activate
+            mod_eval.append(len(history.history['loss'])-patience) # assign stopping epoch as the epoch before improvements dropped
+            for v in history.history.values():
+                mod_eval.append(v[-patience-1]) # append ending metrics
+        eval_run.append(mod_eval)
+  #  avg_val = np.mean(eval_run,axis=0)
+    eval_run = pd.DataFrame(eval_run, columns = ['epochs'] + list(history.history.keys()))
+    avg_val = eval_run.mean(axis =0)
+    params['epochs'] = int(avg_val[0])
+    return eval_run, avg_val
+   # return eval_run, avg_val[0], avg_val[1], avg_val[2], avg_val[3],avg_val[4], avg_val[5],avg_val[6]
+
+###########################
+#### Hyperoptimization ####
+###########################
 def hyp_rnn_nest(params, features, targets):
     """
     Generate vanilla RNN for single timestep output prediction (one-to-one or many-to-one)
@@ -626,9 +695,6 @@ def hyp_rnn_nest(params, features, targets):
         #  model.compile(loss = 'categorical_crossentropy', optimizer = Adam(learning_rate = params['learning_rate']), metrics = [F1Score(num_classes=4, average = 'macro'), 'Accuracy', 'Precision', 'Recall', AUC(curve = 'ROC', name = 'ROC'), AUC(curve='PR',name ='PR')]) # compile the model
     return model 
 
-###########################
-#### Hyperoptimization ####
-###########################
 def run_trials(filename, objective, space, rstate, initial = 20, trials_step = 1):
     """
     Run and save trials indefinitely until manually stopped. 
@@ -864,140 +930,3 @@ def hyperoptimizer_ende(params):
             'train_loss': train_loss,
             'train_f1':train_f1}    
 
-##########################
-#### Model evaluation ####
-##########################
-def monitoring_plots(result, metrics):
-    """
-    plot the training and validation loss, f1 and accuracy
-
-    Parameters
-    ----------
-    result : history from the fitted model 
-
-    Returns
-    -------
-    monitoring plots outputted
-    """
-    n = len(metrics)
-    fig, ax = pyplot.subplots(1,n, figsize = (2*n+2,2))
-    for i in range(n):
-        pyplot.subplot(1,n,i+1)
-        pyplot.plot(result.history[metrics[i]], label='train')
-        pyplot.plot(result.history['val_'+metrics[i]], label='validation')
-        pyplot.legend()
-        pyplot.title(metrics[i])
-    fig.tight_layout()
-    return fig
-    
-def confusion_mat(y, y_pred):
-    """
-    generates and visualizes the confusion matrix
-
-    Parameters
-    ----------
-    y : labeled true values
-    y_pred : labeled predictions
-
-    Returns
-    -------
-    cm : confusion matrix
-
-    """
-    labels = ['feeding','resting','socializing','traveling']
-    fig, ax = pyplot.subplots(1,2,figsize=(6,2))
-    cm_norm = confusion_matrix(y,y_pred, normalize = 'true') # normalized confusion matrix to get proportion instead of counts
-    cm_count = confusion_matrix(y,y_pred) # get confusion matrix without normalization (i.e., counts)
-    sns.set(font_scale=0.5)
-    pyplot.subplot(1,2,1)
-    sns.heatmap(cm_count, 
-                    xticklabels=labels, 
-                    yticklabels=labels, 
-                    annot=True, 
-                    fmt ='d') 
-    pyplot.yticks(rotation=0) 
-    pyplot.xticks(rotation=0) 
-    pyplot.ylabel('True label', fontsize = 7)
-    pyplot.xlabel('Predicted label', fontsize = 7)
-    pyplot.subplot(1,2,2)
-    sns.heatmap(cm_norm, 
-                xticklabels=labels, 
-                yticklabels=labels, 
-                annot=True) 
-    pyplot.yticks(rotation=0) 
-    pyplot.xticks(rotation=0) 
-    pyplot.ylabel('True label', fontsize = 7)
-    pyplot.xlabel('Predicted label', fontsize = 7)
-    fig.tight_layout()
-    pyplot.show(block=True)
-    return fig
-
-def class_report(y, y_pred):
-    """
-    generate the class report to get the recall, precision, f1 and accuracy per class and overall
-
-    Parameters
-    ----------
-    y : labeled true values
-    y_pred : labeled predictions
-
-    Returns
-    -------
-    class_rep : classification report
-
-    """
-    class_rep = classification_report(y,y_pred, zero_division = 0, output_dict = True) # generatate classification report as dictionary
-    class_rep = DataFrame(class_rep).transpose() # convert dictionary to dataframe
-    return class_rep    
-
-def result_summary(test_y, y_prob, path, filename):
-    """
-    Summary of model evaluation for single model for multiple iterations. Generates the prediction timestep and overall F1 score, overall 
-    classification report and confusion matrix. Outputs classification report nad confusion matrix to pdf.
-    
-    Parameters
-    ----------
-    test_y: one-hot encoded test_y
-    y_prob: probability of class prediction 
-
-    Returns
-    -------
-    score: overall f1 score
-    scores: timestep level f1 scores
-    class_rep: overall classification report
-    cm: overall confusion matrix
-
-    """
-    y_label = to_label(test_y) # observed target
-    y_pred = to_label(y_prob, prob = True) # predicted target
-    
-    if len(y_label.shape) == 1: # no multiple scores
-        scores = 'nan'
-    else:
-        scores = [] # create empty list to populate with timestep level predictions
-        for i in range(len(y_pred)): # for each timestep
-            f1 = f1_score(y_label[i,:], y_pred[i,:], average = 'macro') # get the f1 value at the timestep
-            scores.append(f1) # append to the empty scores list
-        y_pred = np.concatenate(y_pred) # merge predictions across timesteps to single vector
-        y_label = np.concatenate(y_label) # merge target values across timesteps to single vector
-    print('sequence level f1 score: ', scores)
-    score = f1_score(y_label, y_pred, average = 'macro') # generate the overall f1 score
-    print('overall f1 score: ', score)
-    
-    class_rep = class_report(y_label, y_pred) # get class report for overall
-    
-    with PdfPages(path+filename+'.pdf') as pdf:
-        cm = confusion_mat(y_label, y_pred) # get confusion matrix for overall
-        pdf.savefig(cm) # save figure
-        pyplot.close() # close page
-        pyplot.figure(figsize=(6, 2)) # assign figure size
-        pyplot.table(cellText=np.round(class_rep.values,4),
-                      colLabels = class_rep.columns, 
-                      rowLabels=class_rep.index,
-                      loc='center',
-                      fontsize = 9)
-        pyplot.axis('tight') 
-        pyplot.axis('off')
-        pdf.savefig() # save figure
-        pyplot.close() # close page
-    return score, scores, class_rep, cm
