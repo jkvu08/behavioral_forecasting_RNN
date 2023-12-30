@@ -311,7 +311,6 @@ history = model.fit(train_X,
                     shuffle=False,
                     verbose = 2)
 
-history.history.keys()
 # monitor the results
 mon_plots3 = bmf.monitoring_plots(history, ['loss','f1_score','accuracy'])
 mon_plots3.savefig(path+'manual_vanilla_rnn_gru_monitoring_f1_loss.jpg', dpi=150) # save monitoring plot

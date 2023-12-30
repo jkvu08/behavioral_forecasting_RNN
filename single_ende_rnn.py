@@ -9,20 +9,21 @@ This code can be used to manually tune parameters by monitoring the loss plots, 
 """
 # Load libraries
 import os
-import time
+#import time
 import numpy as np
 from numpy import newaxis
-from matplotlib import pyplot
-import pandas as pd
-from pandas import read_csv, DataFrame
-from sklearn.metrics import confusion_matrix, classification_report, ConfusionMatrixDisplay, f1_score
-import tensorflow as tf
-from tensorflow.keras.layers import Dense, Dropout, LSTM, Masking, GRU, RepeatVector, TimeDistributed
-from tensorflow_addons.metrics import F1Score
+#from matplotlib import pyplot
+#import pandas as pd
+from pandas import read_csv
+#from sklearn.metrics import confusion_matrix, classification_report, ConfusionMatrixDisplay, f1_score
+#import tensorflow as tf
+from tensorflow.keras.layers import Dense, Dropout, LSTM, Masking, RepeatVector, TimeDistributed
+#from tensorflow_addons.metrics import F1Score
+from tensorflow.keras.callbacks import EarlyStopping
 #from tensorflow.keras.preprocessing import sequence
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.models import Sequential
-from keras.callbacks import Callback
+#from keras.callbacks import Callback
 
 ######################
 #### Data Import #####
@@ -207,3 +208,212 @@ lstm_score, _, _, _ = bmf.result_summary(y_test,
                                          'manual_ende_rnn_lstm_evaluation') 
 # lstm_score = 0.325
 # view output file results
+
+# build model using wrapper
+model = bmf.build_ende(train_X, 
+                       train_y, 
+                       neurons_n = 20, 
+                       hidden_n = 10, 
+                       td_neurons = 10,
+                       lr_rate = 0.001, 
+                       d_rate=0.3,
+                       layers = 1, 
+                       mtype = 'GRU')
+
+model.summary()
+# Model: "sequential_1"
+# _________________________________________________________________
+# Layer (type)                 Output Shape              Param #   
+# =================================================================
+# Masking (Masking)            (None, 5, 26)             0         
+# _________________________________________________________________
+# GRU (GRU)                    (None, 20)                2880      
+# _________________________________________________________________
+# dense_10 (Dense)             (None, 10)                210       
+# _________________________________________________________________
+# dropout_4 (Dropout)          (None, 10)                0         
+# _________________________________________________________________
+# repeat_vector_3 (RepeatVecto (None, 1, 10)             0         
+# _________________________________________________________________
+# gru (GRU)                    (None, 1, 20)             1920      
+# _________________________________________________________________
+# time_distributed_6 (TimeDist (None, 1, 10)             210       
+# _________________________________________________________________
+# time_distributed_7 (TimeDist (None, 1, 4)              44        
+# =================================================================
+# Total params: 5,264
+# Trainable params: 5,264
+# Non-trainable params: 0
+# _________________________________________________________________
+
+# generate a callback for early stopping to prevent overfitting on training data
+early_stopping = EarlyStopping(monitor='val_loss', # monitor validation loss
+                               patience = 25, # stop if loss doesn't improve after 5 epochs
+                               mode = 'min', # minimize validation loss 
+                               restore_best_weights=True, # restore the best weights
+                               verbose=1) # print progress
+
+# fit the model
+history = model.fit(train_X, # features
+                    train_y, # targets
+                    validation_data = (test_X, test_y), # add validation data
+                    epochs = 100, # epochs 
+                    batch_size = 512, # batch size
+                    sample_weight = sweights, # add sample weights
+                    callbacks = [early_stopping], # add early stopping callback
+                    shuffle=False, # determine whether to shuffle order of data, False since we want to preserve time series
+                    verbose = 2) # status print outs
+# early stopping initiated at 26 epochs
+
+# monitor and evaluate the results
+mon_plots2 = bmf.monitoring_plots(history, ['loss','f1','accuracy']) # generate loss and performance curves
+mon_plots2.savefig(path+'manual_ende_rnn_gru_monitoring.jpg', dpi=150) # save monitoring plot and examine in output file
+# loss and accuracy plots don't look great. Don't really see improvement in either.Validation f1 also doesn't seem to improve.
+# may want to use f1 loss instead or run longer without early stopping
+
+loss, f1, accuracy = model.evaluate(test_X, test_y) # evaluate the model (also could just extract from the fit directly)
+# loss: 0.451
+# f1: 0.229
+# accuracy: 0.858
+
+y_prob = model.predict(test_X) # get prediction prob for each class
+y_prob = y_prob.reshape(y_prob.shape[0],y_prob.shape[2]) # get rid of dummy 2nd dimension 
+y_prob[0:10,:] # print subset
+# array([[0.40441394, 0.36675656, 0.02048454, 0.2083449 ],
+#        [0.10962416, 0.76384246, 0.00764013, 0.11889327],
+#        [0.16252732, 0.6288581 , 0.01860255, 0.19001201],
+#        [0.09531359, 0.7889532 , 0.00916176, 0.10657147],
+#        [0.05646299, 0.8538656 , 0.01055881, 0.07911263],
+#        [0.04969491, 0.8681456 , 0.01146916, 0.07069026],
+#        [0.04442912, 0.87876123, 0.01473773, 0.06207189],
+#        [0.03180532, 0.9160052 , 0.01597678, 0.0362127 ],
+#        [0.03196592, 0.9153372 , 0.01580463, 0.03689224],
+#        [0.03183167, 0.9157397 , 0.01571081, 0.03671776]], dtype=float32)
+
+# generate prediction labels
+y_pred = bmf.to_label(y_prob,
+                      prob = True) # prob = True to draw from probability distribution, prob = False to pred based on max probability
+y_val[0:10] # view observed targets
+# [1, 3, 1, 1, 1, 1, 1, 1, 1, 1]
+y_pred[0:10] # view subset of predictions
+# [0, 1, 1, 1, 1, 1, 1, 1, 1, 0] can see that 3 predictions differ from the target, more inaccurate than lstm based on first 10 predictions
+
+# calculte overall f1 score and timestep f1 scores, as well as output confusion matrix and classification report in pdf
+gru_score, _, _, _ = bmf.result_summary(y_test, 
+                                         y_prob, 
+                                         path, 
+                                         'manual_ende_rnn_gru_evaluation') 
+# gru_score = 0.322, similar performance to lstm model
+
+# build model using f1_loss function
+model = bmf.build_ende(train_X, 
+                       train_y, 
+                       neurons_n = 20, 
+                       hidden_n = 10, 
+                       td_neurons = 10,
+                       lr_rate = 0.001, 
+                       d_rate=0.3,
+                       layers = 1, 
+                       mtype = 'GRU',
+                       cat_loss = False)
+
+model.summary()
+# Model: "sequential_2"
+# _________________________________________________________________
+# Layer (type)                 Output Shape              Param #   
+# =================================================================
+# Masking (Masking)            (None, 5, 26)             0         
+# _________________________________________________________________
+# GRU (GRU)                    (None, 20)                2880      
+# _________________________________________________________________
+# dense_13 (Dense)             (None, 10)                210       
+# _________________________________________________________________
+# dropout_5 (Dropout)          (None, 10)                0         
+# _________________________________________________________________
+# repeat_vector_4 (RepeatVecto (None, 1, 10)             0         
+# _________________________________________________________________
+# gru_1 (GRU)                  (None, 1, 20)             1920      
+# _________________________________________________________________
+# time_distributed_8 (TimeDist (None, 1, 10)             210       
+# _________________________________________________________________
+# time_distributed_9 (TimeDist (None, 1, 4)              44        
+# =================================================================
+# Total params: 5,264
+# Trainable params: 5,264
+# Non-trainable params: 0
+# _________________________________________________________________
+
+# generate a callback for early stopping to prevent overfitting on training data
+early_stopping = EarlyStopping(monitor='val_loss', # monitor validation loss
+                               patience = 25, # stop if loss doesn't improve after 25 epochs
+                               mode = 'min', # minimize validation loss 
+                               restore_best_weights=True, # restore the best weights
+                               verbose=1) # print progress
+
+# fit the model
+history = model.fit(train_X, # features
+                    train_y, # targets
+                    validation_data = (test_X, test_y), # add validation data
+                    epochs = 100, # epochs 
+                    batch_size = 512, # batch size
+                    sample_weight = sweights, # add sample weights
+                    callbacks = [early_stopping], # add early stopping callback
+                    shuffle=False, # determine whether to shuffle order of data, False since we want to preserve time series
+                    verbose = 2) # status print outs
+
+# monitor the results
+mon_plots3 = bmf.monitoring_plots(history, ['loss','f1','accuracy'])
+mon_plots3.savefig(path+'manual_ende_rnn_gru_monitoring_f1_loss.jpg', dpi=150) # save monitoring plot
+# early stopping activated after 87 epochs
+# loss and performance curves are less noisy
+
+loss, f1, accuracy = model.evaluate(test_X, test_y) # evaluate the model (also could just extract from the fit directly)
+# f1_loss: 0.669
+# f1: 0.331
+# accuracy: 0.839
+
+y_prob = model.predict(test_X) # get prediction prob for each class
+y_prob = y_prob.reshape(y_prob.shape[0],y_prob.shape[2]) # get rid of dummy 2nd dimension 
+y_prob[0:10,:] # print subset
+# array([[1.0000000e+00, 7.4371403e-12, 7.0029212e-11, 1.0982383e-09],
+#        [5.5838521e-15, 9.9999213e-01, 7.8826079e-06, 2.5520348e-12],
+#        [3.0090220e-08, 4.4974400e-16, 5.1900759e-07, 9.9999940e-01],
+#        [6.2020519e-15, 9.9999011e-01, 9.9299323e-06, 3.3750717e-12],
+#        [5.4428444e-15, 9.9999261e-01, 7.4382433e-06, 2.3721259e-12],
+#        [5.5248020e-15, 9.9999225e-01, 7.7185423e-06, 2.4777149e-12],
+#        [5.5633353e-15, 9.9999225e-01, 7.7366940e-06, 2.4896385e-12],
+#        [5.5706617e-15, 9.9999225e-01, 7.7368713e-06, 2.4907643e-12],
+#        [5.5758070e-15, 9.9999225e-01, 7.7471414e-06, 2.4950007e-12],
+#        [5.5810205e-15, 9.9999225e-01, 7.7578170e-06, 2.4993924e-12]],
+#       dtype=float32)
+
+# ensure row probabilities equal to 1, might slightly deviate due to approximation of f1_loss function
+# subtract a small amount from the largest class probability per row
+y_proba = bmf.prob_adjust(y_prob)
+y_proba[0:10,:]
+# array([[9.9998999e-01, 7.4371403e-12, 7.0029212e-11, 1.0982383e-09],
+#        [5.5838521e-15s, 9.9998212e-01, 7.8826079e-06, 2.5520348e-12],
+#        [3.0090220e-08, 4.4974400e-16, 5.1900759e-07, 9.9998939e-01],
+#        [6.2020519e-15, 9.9998009e-01, 9.9299323e-06, 3.3750717e-12],
+#        [5.4428444e-15, 9.9998260e-01, 7.4382433e-06, 2.3721259e-12],
+#        [5.5248020e-15, 9.9998224e-01, 7.7185423e-06, 2.4777149e-12],
+#        [5.5633353e-15, 9.9998224e-01, 7.7366940e-06, 2.4896385e-12],
+#        [5.5706617e-15, 9.9998224e-01, 7.7368713e-06, 2.4907643e-12],
+#        [5.5758070e-15, 9.9998224e-01, 7.7471414e-06, 2.4950007e-12],
+#        [5.5810205e-15, 9.9998224e-01, 7.7578170e-06, 2.4993924e-12]],
+#       dtype=float32)
+
+# generate prediction labels
+y_pred = bmf.to_label(y_proba,
+                      prob = True) # prob = True to draw from probability distribution, prob = False to pred based on max probability
+y_val[0:10] # view observed targets
+# [1, 3, 1, 1, 1, 1, 1, 1, 1, 1]
+y_pred[0:10] # view subset of predictions
+# [0, 1, 3, 1, 1, 1, 1, 1, 1, 1] 3 predictions differ from target, same performance of previous gru model based on accuracy of first 10 records
+gru_score_f1, _, _, _ = bmf.result_summary(y_test, 
+                                           y_prob, 
+                                           path, 
+                                           'manual_ende_rnn_gru_evaluation_f1')
+# view output file results
+# gru_score_f1 = 0.444, higher f1 score compared to lstm and gru model trained using categorical cross entropy loss function
+# also outperforms models trained using categorical cross entropy loss function based on overall and class specific precision, recall and accuracy based on output file
