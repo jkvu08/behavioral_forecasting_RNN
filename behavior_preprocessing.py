@@ -16,13 +16,11 @@ import os
 import pandas as pd
 from pandas import read_csv
 import numpy as np
-from numpy import argmax
 from tensorflow.keras.utils import to_categorical
 from sklearn.preprocessing import MinMaxScaler
 import seaborn as sns
 import itertools
 from matplotlib import pyplot
-import itertools
 
 # set working directory
 os.chdir("C:\\Users\\Jannet\\Documents\\Dissertation\\codes\\behavioral_forecasting_RNN")
