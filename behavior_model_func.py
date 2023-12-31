@@ -153,7 +153,7 @@ def prob_adjust(y_prob):
 
     """
     y_max = tuple(one_hot_decode(y_prob)) # get max prob class
-    y_adjust = y_prob[range(y_prob.shape[0]), y_max] - 0.00001 # subtract small number from max prob
+    y_adjust = y_prob[range(y_prob.shape[0]), y_max] - 0.0000001 # subtract small number from max prob
     y_prob[range(y_prob.shape[0]), y_max] = y_adjust # replace adjusted prob into data
     return y_prob # return adjusted prob
 
@@ -273,22 +273,6 @@ def f1_loss(y_true, y_pred):
                   f1) # else set to f1 score
     return 1 - K.mean(f1) # calculate loss f1
 
-params = {'atype': 'VRNN',
-          'mtype': 'GRU',
-          'lookback': lookback,
-          'hidden_layers': 1,
-          'neurons_n': 20,
-          'hidden_n': 10,
-          'learning_rate': 0.001,
-          'dropout_rate': 0.3,               
-          'loss': False,
-          'epochs': 100,
-          'batch_size': 512,
-          'weights_0': 1,
-          'weights_1': 1,
-          'weights_2': 3,
-          'weights_3': 1}
-
 def build_rnn(features, targets, lookback, neurons_n=10, hidden_n=[10], lr_rate=0.001, d_rate = 0.2, layers = 1, mtype = 'LSTM', cat_loss = True):
     """
     Vanilla LSTM for single timestep output prediction (one-to-one or many-to-one)
@@ -328,6 +312,8 @@ def build_rnn(features, targets, lookback, neurons_n=10, hidden_n=[10], lr_rate=
         model.add(GRU(units = neurons_n, 
                       input_shape = (lookback,features), 
                       name = 'GRU')) # set the RNN type
+    # add drop out
+    model.add(Dropout(rate= d_rate)) 
     for i in range(layers): # for each hidden layer
         # add dense layer
         model.add(Dense(units = hidden_n[i], 
@@ -390,9 +376,11 @@ def build_ende(features, targets, lookback, n_outputs, neurons_n = 10, hidden_n 
         model.add(GRU(units = neurons_n, 
                       input_shape = (lookback,features), 
                       name = 'GRU'))
+    # add a dropout layer
+    model.add(Dropout(rate = d_rate))
     for i in range(layers): # for each hidden layer  
         # add a dense layer
-        model.add(Dense(units = hidden_n, 
+        model.add(Dense(units = hidden_n[i], 
                         activation = 'relu', 
                         kernel_initializer =  'he_uniform')) 
         # add a dropout layer
@@ -638,6 +626,25 @@ def eval_iter(model, params, train_X, train_y, test_X, test_y, patience = 0 , ma
 #### Hyperoptimization ####
 ###########################
 def hyp_nest(params, features, targets):
+    '''
+    construct vanilla RNN or encoder-decode RNN based on parameter dictionary specifications
+
+    Parameters
+    ----------
+    params : dict, dictionary of paramters and hyperparameters
+    features : int, number of features used for prediction
+    targets : int, number of targets (classes) predicted
+
+    Raises
+    ------
+    Exception
+        something other than 'VRNN' designating vanilla RNN or 'ENDE' designating encoder-decoder RNN was specified in params['atype']
+
+    Returns
+    -------
+    model : RNN model
+
+    '''
     if params['atype'] == 'VRNN':
         model = build_rnn(features, 
                           targets, 
@@ -664,7 +671,6 @@ def hyp_nest(params, features, targets):
                            cat_loss = params['loss'])
     else:
         raise Exception ('invalid model architecture')    
-   
     return model
 
 def hyp_ende_nest(params, features, targets):

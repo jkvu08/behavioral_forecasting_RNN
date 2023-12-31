@@ -10,13 +10,10 @@ This code can be used to manually tune parameters by monitoring the loss plots, 
 """
 # Load libraries
 import os
-#import pandas as pd
 from pandas import read_csv
-#import tensorflow as tf
 from tensorflow.keras.layers import Dense, Dropout, LSTM, Masking
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.models import Sequential
-from tensorflow_addons.metrics import F1Score
 from tensorflow.keras.callbacks import EarlyStopping
 
 ######################
@@ -88,6 +85,8 @@ model.add(Masking(mask_value = -1,
 model.add(LSTM(units = neurons_n, 
                input_shape = (lookback,features), 
                name = 'LSTM')) 
+# add dropout
+model.add(Dropout(rate= d_rate)) 
 # add dense layer & set activation function
 model.add(Dense(units = hidden_n, 
                 activation = 'relu', 
@@ -100,7 +99,7 @@ model.add(Dense(units = targets,
                 name = 'Output')) 
 model.compile(loss = 'categorical_crossentropy', # compile model, 
               optimizer = Adam(learning_rate = lr_rate), # set learning rate
-              metrics= [F1Score(num_classes=targets, average = 'macro'),'accuracy']) # calculate metrics
+              metrics= [bmf.f1,'accuracy']) # calculate metrics
 
 model.summary() # examine model architecture
 
@@ -112,9 +111,11 @@ model.summary() # examine model architecture
 # _________________________________________________________________
 # LSTM (LSTM)                  (None, 10)                1480      
 # _________________________________________________________________
-# dense_3 (Dense)              (None, 5)                 55        
+# dropout (Dropout)            (None, 10)                0        
 # _________________________________________________________________
-# dropout_3 (Dropout)          (None, 5)                 0         
+# dense (Dense)                (None, 5)                 55        
+# _________________________________________________________________
+# dropout (Dropout)            (None, 5)                 0         
 # _________________________________________________________________
 # Output (Dense)               (None, 4)                 24        
 # =================================================================
@@ -129,7 +130,7 @@ history = model.fit(train_X, # features
                     validation_data = (test_X, test_y), # add validation data
                     epochs = 50, # epochs 
                     batch_size = 512, # batch size
-                  #  class_weight = weights, # add class weights
+                    class_weight = weights, # add class weights
                     shuffle=False, # determine whether to shuffle order of data, False since we want to preserve time series
                     verbose = 2) # status print outs
 history.history.keys() # examine outputs
@@ -184,11 +185,12 @@ model = bmf.build_rnn(features = features,
                       targets = targets,
                       lookback = lookback,
                       neurons_n = 20, 
-                      hidden_n = 10, 
+                      hidden_n = [10], 
                       lr_rate = 0.001, 
                       d_rate=0.3,
                       layers = 1, 
                       mtype = 'GRU')
+
 model.summary()
 # Model: "sequential_1"
 # _________________________________________________________________
@@ -198,9 +200,11 @@ model.summary()
 # _________________________________________________________________
 # GRU (GRU)                    (None, 20)                2880      
 # _________________________________________________________________
-# dense_2 (Dense)              (None, 10)                210       
+# dropout_2 (Dropout)          (None, 20)                0         
 # _________________________________________________________________
-# dropout_2 (Dropout)          (None, 10)                0         
+# dense_1 (Dense)              (None, 10)                210       
+# _________________________________________________________________
+# dropout_3 (Dropout)          (None, 10)                0         
 # _________________________________________________________________
 # Output (Dense)               (None, 4)                 44        
 # =================================================================
@@ -269,7 +273,7 @@ model = bmf.build_rnn(features = features,
                       targets = targets,
                       lookback = lookback,
                       neurons_n = 20, 
-                      hidden_n = 10, 
+                      hidden_n = [10], 
                       lr_rate = 0.001, 
                       d_rate=0.3,
                       layers = 1, 
@@ -284,9 +288,11 @@ model.summary()
 # _________________________________________________________________
 # GRU (GRU)                    (None, 20)                2880      
 # _________________________________________________________________
+# dropout_4 (Dropout)          (None, 20)                0         
+# _________________________________________________________________
 # dense_2 (Dense)              (None, 10)                210       
 # _________________________________________________________________
-# dropout_2 (Dropout)          (None, 10)                0         
+# dropout_5 (Dropout)          (None, 10)                0         
 # _________________________________________________________________
 # Output (Dense)               (None, 4)                 44        
 # =================================================================
@@ -356,7 +362,7 @@ y_proba[0:10,:]
 #       dtype=float32)
 
 # generate prediction labels
-y_pred = bmf.to_label(y_prob, prob = True) # prob = True to draw from probability distribution, prob = False to pred based on max probability
+y_pred = bmf.to_label(y_proba, prob = True) # prob = True to draw from probability distribution, prob = False to pred based on max probability
 y_val[0:10] # view observed targets
 # [1, 3, 1, 1, 1, 1, 1, 1, 1, 1]
 y_pred[0:10] # view subset of predictions
@@ -379,7 +385,7 @@ params = {'atype': 'VRNN',
           'learning_rate': 0.001,
           'dropout_rate': 0.3,               
           'loss': False,
-          'epochs': 100,
+          'epochs': 5,
           'batch_size': 512,
           'weights_0': 1,
           'weights_1': 1,
@@ -388,14 +394,15 @@ params = {'atype': 'VRNN',
 
 model = bmf.build_rnn(features = features,
                       targets = targets,
-                      lookback = params['lookback'], 
+                      lookback = params['lookback'],
                       layers = params['hidden_layers'], 
                       neurons_n = params['neurons_n'], 
-                      hidden_n = params['hidden_n'], 
+                      hidden_n = [params['hidden_n']], 
                       lr_rate = params['learning_rate'], 
                       d_rate= params['dropout_rate'],
                       mtype = params['mtype'], 
                       cat_loss = params['loss'])
+
 model.summary()
 # Model: "sequential_3"
 # _________________________________________________________________
@@ -405,9 +412,11 @@ model.summary()
 # _________________________________________________________________
 # GRU (GRU)                    (None, 20)                2880      
 # _________________________________________________________________
-# dense_6 (Dense)              (None, 10)                210       
+# dropout_6 (Dropout)          (None, 20)                0         
 # _________________________________________________________________
-# dropout_6 (Dropout)          (None, 10)                0         
+# dense_3 (Dense)              (None, 10)                210       
+# _________________________________________________________________
+# dropout_7 (Dropout)          (None, 10)                0         
 # _________________________________________________________________
 # Output (Dense)               (None, 4)                 44        
 # =================================================================
@@ -479,3 +488,46 @@ avg_eval # average epochs run, loss and metrics
 # dtype: float64
 # similar metrics as the run without patience, likely cause loss and metrics plateaued
 # seems like early stopping can be applied given the similar performances of the models despite running for various epochs
+
+# run with hyperparameter function
+# specify parameters/hyperparameters
+# hidden neuron variables differ from prior parameter specification
+params = {'atype': 'VRNN',
+          'mtype': 'GRU',
+          'lookback': lookback, # also added lookback as parameter in dictionary
+          'hidden_layers': 1,
+          'neurons_n': 20,
+          'hidden_n0': 10,
+          'hidden_n1': 10,
+          'learning_rate': 0.001,
+          'dropout_rate': 0.3,               
+          'loss': False,
+          'epochs': 5,
+          'batch_size': 512,
+          'weights_0': 1,
+          'weights_1': 1,
+          'weights_2': 3,
+          'weights_3': 1}
+
+model = bmf.hyp_nest(params, features, targets)
+model.summary() # looks identical to prior model as expected
+# Model: "sequential_4"
+# _________________________________________________________________
+# Layer (type)                 Output Shape              Param #   
+# =================================================================
+# Masking (Masking)            (None, 5, 26)             0         
+# _________________________________________________________________
+# GRU (GRU)                    (None, 20)                2880      
+# _________________________________________________________________
+# dropout_8 (Dropout)          (None, 20)                0         
+# _________________________________________________________________
+# dense_4 (Dense)              (None, 10)                210       
+# _________________________________________________________________
+# dropout_9 (Dropout)          (None, 10)                0         
+# _________________________________________________________________
+# Output (Dense)               (None, 4)                 44        
+# =================================================================
+# Total params: 3,134
+# Trainable params: 3,134
+# Non-trainable params: 0
+# _________________________________________________________________

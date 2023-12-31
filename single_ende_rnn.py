@@ -104,6 +104,8 @@ model.add(Masking(mask_value = -1,
 model.add(LSTM(units =neurons_n, 
                input_shape = (lookback,features), 
                name = 'LSTM')) 
+# add dropout
+model.add(Dropout(rate= d_rate)) 
 # add dense layer & set activation function
 model.add(Dense(units = hidden_n, 
                 activation = 'relu', 
@@ -135,9 +137,11 @@ model.summary() # examine model architecture
 # _________________________________________________________________
 # LSTM (LSTM)                  (None, 10)                1480      
 # _________________________________________________________________
+# dropout (Dropout)            (None, 10)                0         
+# _________________________________________________________________
 # dense (Dense)                (None, 10)                110       
 # _________________________________________________________________
-# dropout (Dropout)            (None, 10)                0         
+# dropout_1 (Dropout)          (None, 10)                0         
 # _________________________________________________________________
 # repeat_vector (RepeatVector) (None, 1, 10)             0         
 # _________________________________________________________________
@@ -151,7 +155,6 @@ model.summary() # examine model architecture
 # Trainable params: 2,509
 # Non-trainable params: 0
 # _________________________________________________________________
-
 # fit model
 history = model.fit(train_X, # features
                     train_y, # targets
@@ -181,21 +184,21 @@ y_val[0:10] # view subset target labels
 y_prob = model.predict(test_X) # get prediction prob for each class
 y_prob = y_prob.reshape(y_prob.shape[0],y_prob.shape[2]) # get rid of dummy 2nd dimension 
 y_prob[0:10,:] # print subset
-# array([[0.44845662, 0.39094216, 0.01825993, 0.14234132],
-#        [0.15812816, 0.7079554 , 0.03350493, 0.10041149],
-#        [0.21287797, 0.4884479 , 0.08845554, 0.21021867],
-#        [0.11449117, 0.7072292 , 0.06240171, 0.11587794],
-#        [0.06363994, 0.8338091 , 0.03948412, 0.0630669 ],
-#        [0.04477714, 0.8816436 , 0.02974448, 0.04383473],
-#        [0.03588417, 0.9050219 , 0.02449205, 0.03460185],
-#        [0.0297618 , 0.9266335 , 0.0176416 , 0.02596321],
-#        [0.03016611, 0.92537135, 0.01800338, 0.02645908],
-#        [0.03028067, 0.92505103, 0.01808515, 0.02658314]], dtype=float32)
+# array([[0.36737972, 0.3883281 , 0.04880331, 0.19548889],
+#        [0.15515094, 0.67816854, 0.03508063, 0.13159987],
+#        [0.2841164 , 0.42461208, 0.02623351, 0.265038  ],
+#        [0.11499098, 0.7439996 , 0.02707816, 0.11393125],
+#        [0.05381021, 0.8689007 , 0.02362371, 0.05366542],
+#        [0.03488212, 0.9076745 , 0.01872229, 0.03872102],
+#        [0.02907102, 0.9203498 , 0.01645795, 0.03412125],
+#        [0.0225982 , 0.93458927, 0.01383973, 0.02897269],
+#        [0.02283373, 0.93401384, 0.01400123, 0.02915114],
+#        [0.02290114, 0.93384266, 0.01405505, 0.02920114]], dtype=float32)
 
 # generate prediction labels
 y_pred = bmf.to_label(y_prob, prob = True) # prob = True to draw from probability distribution, prob = False to pred based on max probability
 y_pred[0:10] # view subset of predictions
-# [1, 1, 1, 0, 1, 1, 1, 1, 1, 1] can see that 2 predictions differ from the target
+# [0, 1, 3, 0, 1, 1, 1, 1, 1, 1] can see that 4 predictions differ from the target
 
 cm_fig = bmf.confusion_mat(y_val, y_pred) # generate confusion matrix 
 bmf.class_report(y_val, y_pred) # generate classification report
@@ -209,8 +212,10 @@ lstm_score, _, _, _ = bmf.result_summary(y_test,
 # view output file results
 
 # build model using wrapper
-model = bmf.build_ende(train_X, 
-                       train_y, 
+model = bmf.build_ende(features,
+                       targets,
+                       lookback,
+                       n_output,
                        neurons_n = 20, 
                        hidden_n = 10, 
                        td_neurons = 10,
@@ -228,17 +233,19 @@ model.summary()
 # _________________________________________________________________
 # GRU (GRU)                    (None, 20)                2880      
 # _________________________________________________________________
-# dense_10 (Dense)             (None, 10)                210       
+# dropout_2 (Dropout)          (None, 20)                0         
 # _________________________________________________________________
-# dropout_4 (Dropout)          (None, 10)                0         
+# dense_3 (Dense)              (None, 10)                210       
 # _________________________________________________________________
-# repeat_vector_3 (RepeatVecto (None, 1, 10)             0         
+# dropout_3 (Dropout)          (None, 10)                0         
+# _________________________________________________________________
+# repeat_vector_1 (RepeatVecto (None, 1, 10)             0         
 # _________________________________________________________________
 # gru (GRU)                    (None, 1, 20)             1920      
 # _________________________________________________________________
-# time_distributed_6 (TimeDist (None, 1, 10)             210       
+# time_distributed_2 (TimeDist (None, 1, 10)             210       
 # _________________________________________________________________
-# time_distributed_7 (TimeDist (None, 1, 4)              44        
+# time_distributed_3 (TimeDist (None, 1, 4)              44        
 # =================================================================
 # Total params: 5,264
 # Trainable params: 5,264
@@ -262,7 +269,7 @@ history = model.fit(train_X, # features
                     callbacks = [early_stopping], # add early stopping callback
                     shuffle=False, # determine whether to shuffle order of data, False since we want to preserve time series
                     verbose = 2) # status print outs
-# early stopping not initiated, ran 100 epochs
+# early stopping initiated at 65 epochs
 
 # monitor and evaluate the results
 mon_plots2 = bmf.monitoring_plots(history, ['loss','f1','accuracy']) # generate loss and performance curves
@@ -278,23 +285,23 @@ loss, f1, accuracy = model.evaluate(test_X, test_y) # evaluate the model (also c
 y_prob = model.predict(test_X) # get prediction prob for each class
 y_prob = y_prob.reshape(y_prob.shape[0],y_prob.shape[2]) # get rid of dummy 2nd dimension 
 y_prob[0:10,:] # print subset
-# array([[0.4630983 , 0.38370293, 0.02390137, 0.12929736],
-#        [0.10854505, 0.78368074, 0.0121613 , 0.0956129 ],
-#        [0.24994574, 0.49630412, 0.01838227, 0.23536777],
-#        [0.13313739, 0.7562577 , 0.01468982, 0.09591508],
-#        [0.0624603 , 0.86588496, 0.01150105, 0.06015366],
-#        [0.03238265, 0.9311583 , 0.00981699, 0.02664196],
-#        [0.02648979, 0.9367797 , 0.01113822, 0.02559233],
-#        [0.02486929, 0.9400732 , 0.01153779, 0.02351977],
-#        [0.02495077, 0.9397495 , 0.01160245, 0.02369726],
-#        [0.02479382, 0.94000655, 0.01158202, 0.02361759]], dtype=float32)
+# array([[0.43579295, 0.42106354, 0.02497299, 0.11817045],
+#        [0.1270146 , 0.74329984, 0.02495599, 0.10472956],
+#        [0.22866403, 0.47777608, 0.0596821 , 0.2338778 ],
+#        [0.10285215, 0.7665727 , 0.03482664, 0.09574847],
+#        [0.05721625, 0.86229974, 0.02631802, 0.05416593],
+#        [0.03935101, 0.90645665, 0.01828163, 0.03591076],
+#        [0.03625512, 0.9138584 , 0.01724655, 0.03263992],
+#        [0.02793237, 0.934318  , 0.01387349, 0.02387612],
+#        [0.02813731, 0.93383145, 0.01394826, 0.02408295],
+#        [0.02813703, 0.9338433 , 0.01393993, 0.02407972]], dtype=float32)
 
 # generate prediction labels
 y_pred = bmf.to_label(y_prob, prob = True) # prob = True to draw from probability distribution, prob = False to pred based on max probability
 y_val[0:10] # view observed targets
 # [1, 3, 1, 1, 1, 1, 1, 1, 1, 1]
 y_pred[0:10] # view subset of predictions
-# [1, 1, 2, 1, 1, 1, 1, 1, 1, 1] can see that 2 predictions differ from the target, same as lstm model based on first 10 predictions 
+# [0, 1, 0, 3, 1, 1, 3, 1, 1, 1] can see that 5 predictions differ from the target, worse than lstm model based on first 10 predictions 
 
 # calculte overall f1 score and timestep f1 scores, as well as output confusion matrix and classification report in pdf
 gru_score, _, _, _ = bmf.result_summary(y_test, 
@@ -304,8 +311,10 @@ gru_score, _, _, _ = bmf.result_summary(y_test,
 # gru_score = 0.322, similar performance to lstm model
 
 # build model using f1_loss function
-model = bmf.build_ende(train_X, 
-                       train_y, 
+model = bmf.build_ende(features,
+                       targets,
+                       lookback,
+                       n_output,
                        neurons_n = 20, 
                        hidden_n = 10, 
                        td_neurons = 10,
@@ -324,17 +333,19 @@ model.summary()
 # _________________________________________________________________
 # GRU (GRU)                    (None, 20)                2880      
 # _________________________________________________________________
-# dense_13 (Dense)             (None, 10)                210       
+# dropout_4 (Dropout)          (None, 20)                0         
+# _________________________________________________________________
+# dense_6 (Dense)              (None, 10)                210       
 # _________________________________________________________________
 # dropout_5 (Dropout)          (None, 10)                0         
 # _________________________________________________________________
-# repeat_vector_4 (RepeatVecto (None, 1, 10)             0         
+# repeat_vector_2 (RepeatVecto (None, 1, 10)             0         
 # _________________________________________________________________
 # gru_1 (GRU)                  (None, 1, 20)             1920      
 # _________________________________________________________________
-# time_distributed_8 (TimeDist (None, 1, 10)             210       
+# time_distributed_4 (TimeDist (None, 1, 10)             210       
 # _________________________________________________________________
-# time_distributed_9 (TimeDist (None, 1, 4)              44        
+# time_distributed_5 (TimeDist (None, 1, 4)              44        
 # =================================================================
 # Total params: 5,264
 # Trainable params: 5,264
@@ -362,7 +373,7 @@ history = model.fit(train_X, # features
 # monitor the results
 mon_plots3 = bmf.monitoring_plots(history, ['loss','f1','accuracy'])
 mon_plots3.savefig(path+'manual_ende_rnn_gru_monitoring_f1_loss.jpg', dpi=150) # save monitoring plot
-# early stopping activated after 53 epochs
+# early stopping activated after 74 epochs
 # loss and performance curves are less noisy
 
 loss, f1, accuracy = model.evaluate(test_X, test_y) # evaluate the model (also could just extract from the fit directly)
@@ -373,24 +384,40 @@ loss, f1, accuracy = model.evaluate(test_X, test_y) # evaluate the model (also c
 y_prob = model.predict(test_X) # get prediction prob for each class
 y_prob = y_prob.reshape(y_prob.shape[0],y_prob.shape[2]) # get rid of dummy 2nd dimension 
 y_prob[0:10,:] # print subset
-# array([[9.9993324e-01, 1.6432096e-10, 6.6792403e-05, 3.9807942e-11],
-#        [2.8437383e-12, 9.9996340e-01, 3.4641256e-05, 1.9412471e-06],
-#        [3.3550171e-07, 5.4265306e-06, 4.9743128e-05, 9.9994445e-01],
-#        [4.8992053e-11, 9.9964881e-01, 2.9326553e-04, 5.7916561e-05],
-#        [1.1865787e-12, 9.9998343e-01, 1.5668364e-05, 9.9239060e-07],
-#        [9.3730058e-13, 9.9998641e-01, 1.2724231e-05, 8.4858743e-07],
-#        [9.0765617e-13, 9.9998689e-01, 1.2332683e-05, 8.3874073e-07],
-#        [8.9564906e-13, 9.9998701e-01, 1.2149139e-05, 8.3680254e-07],
-#        [8.8805563e-13, 9.9998713e-01, 1.2074478e-05, 8.3458065e-07],
-#        [8.8093974e-13, 9.9998713e-01, 1.2001807e-05, 8.3271703e-07]],
+# array([[9.99998093e-01, 1.95273378e-06, 8.47613588e-15, 9.55769242e-09],
+#        [2.40825892e-12, 1.00000000e+00, 6.98287761e-10, 1.09779864e-16],
+#        [2.78764419e-05, 1.56039800e-06, 3.20231084e-05, 9.99938488e-01],
+#        [2.79761492e-10, 9.99999881e-01, 1.13153305e-07, 5.50231356e-13],
+#        [1.89856355e-12, 1.00000000e+00, 5.70248848e-10, 7.70473279e-17],
+#        [1.52737599e-12, 1.00000000e+00, 3.86270849e-10, 4.85475610e-17],
+#        [1.48254803e-12, 1.00000000e+00, 3.56785212e-10, 4.46283263e-17],
+#        [1.45701821e-12, 1.00000000e+00, 3.41605938e-10, 4.25677566e-17],
+#        [1.45495204e-12, 1.00000000e+00, 3.40704714e-10, 4.24331908e-17],
+#        [1.45257298e-12, 1.00000000e+00, 3.39360900e-10, 4.22497056e-17]],
+#       dtype=float32)
+
+# ensure row probabilities equal to 1, might slightly deviate due to approximation of f1_loss function
+# subtract a small amount from the largest class probability per row
+y_proba = bmf.prob_adjust(y_prob)
+y_proba[0:10,:]
+# array([[9.99997973e-01, 1.95273378e-06, 8.47613588e-15, 9.55769242e-09],
+#        [2.40825892e-12, 9.99999881e-01, 6.98287761e-10, 1.09779864e-16],
+#        [2.78764419e-05, 1.56039800e-06, 3.20231084e-05, 9.99938369e-01],
+#        [2.79761492e-10, 9.99999762e-01, 1.13153305e-07, 5.50231356e-13],
+#        [1.89856355e-12, 9.99999881e-01, 5.70248848e-10, 7.70473279e-17],
+#        [1.52737599e-12, 9.99999881e-01, 3.86270849e-10, 4.85475610e-17],
+#        [1.48254803e-12, 9.99999881e-01, 3.56785212e-10, 4.46283263e-17],
+#        [1.45701821e-12, 9.99999881e-01, 3.41605938e-10, 4.25677566e-17],
+#        [1.45495204e-12, 9.99999881e-01, 3.40704714e-10, 4.24331908e-17],
+#        [1.45257298e-12, 9.99999881e-01, 3.39360900e-10, 4.22497056e-17]],
 #       dtype=float32)
 
 # generate prediction labels
-y_pred = bmf.to_label(y_prob, prob = True) # prob = True to draw from probability distribution, prob = False to pred based on max probability
+y_pred = bmf.to_label(y_proba, prob = True) # prob = True to draw from probability distribution, prob = False to pred based on max probability
 y_val[0:10] # view observed targets
 # [1, 3, 1, 1, 1, 1, 1, 1, 1, 1]
 y_pred[0:10] # view subset of predictions
-# [0, 1, 3, 1, 1, 1, 1, 1, 1, 1] 3 predictions differ from target, one more incorrect han previous models based on first 10 records
+# [0, 1, 3, 1, 1, 1, 1, 1, 1, 1] 3 predictions differ from target, more correct compared to previous models based on first 10 records
 gru_score_f1, _, _, _ = bmf.result_summary(y_test, 
                                            y_prob, 
                                            path, 
@@ -416,11 +443,14 @@ params = {'atype': 'ENDE',
           'weights_2': 3,
           'weights_3': 1}
 
-model = bmf.build_ende(train_X, 
-                       train_y, 
+
+model = bmf.build_ende(features,
+                       targets,
+                       lookback,
+                       n_output, 
                        layers = params['hidden_layers'], 
                        neurons_n = params['neurons_n'], 
-                       hidden_n = params['hidden_n'], 
+                       hidden_n=[params['hidden_n']],
                        td_neurons = params['td_neurons'],
                        lr_rate = params['learning_rate'], 
                        d_rate= params['dropout_rate'],
@@ -436,17 +466,19 @@ model.summary()
 # _________________________________________________________________
 # GRU (GRU)                    (None, 20)                2880      
 # _________________________________________________________________
-# dense_10 (Dense)             (None, 10)                210       
+# dropout_6 (Dropout)          (None, 20)                0         
 # _________________________________________________________________
-# dropout_10 (Dropout)         (None, 10)                0         
+# dense_7 (Dense)             (None, 10)                210       
 # _________________________________________________________________
-# repeat_vector (RepeatVector) (None, 1, 10)             0         
+# dropout_7 (Dropout)          (None, 10)                0         
 # _________________________________________________________________
-# gru (GRU)                    (None, 1, 20)             1920      
+# repeat_vector_3 (RepeatVecto (None, 1, 10)             0         
 # _________________________________________________________________
-# time_distributed (TimeDistri (None, 1, 5)              105       
+# gru_2 (GRU)                  (None, 1, 20)             1920      
 # _________________________________________________________________
-# time_distributed_1 (TimeDist (None, 1, 4)              24        
+# time_distributed_6 (TimeDist (None, 1, 5)              105       
+# _________________________________________________________________
+# time_distributed_7 (TimeDist (None, 1, 4)              24        
 # =================================================================
 # Total params: 5,139
 # Trainable params: 5,139
@@ -467,22 +499,22 @@ eval_tab, avg_eval = bmf.eval_iter(model,
 
 eval_tab # epochs run, loss and metrics at the end of each model iteration 
 #    epochs      loss        f1  accuracy  val_loss    val_f1  val_accuracy
-# 0     100  0.607589  0.407723  0.778060  0.797386  0.201555      0.744683
-# 1     100  0.587712  0.426673  0.773860  0.577400  0.421629      0.840037
-# 2     100  0.585749  0.429329  0.774739  0.580143  0.418816      0.839465
-# 3     100  0.580732  0.433705  0.777498  0.580151  0.419006      0.840836
-# 4     100  0.579447  0.434846  0.778548  0.582185  0.417092      0.839922
-# similar performance across iterations except for the first iteration
+# 0     100  0.598755  0.416703  0.756550  0.574507  0.424599      0.836952
+# 1     100  0.593344  0.421643  0.761286  0.578753  0.420451      0.839751
+# 2     100  0.584978  0.429840  0.762214  0.578246  0.421083      0.840037
+# 3     100  0.585035  0.429986  0.763288  0.579770  0.419283      0.836609
+# 4     100  0.584877  0.429461  0.763044  0.579820  0.419510      0.834952
+# similar performance across iterations, may not need to test with multiple iterations
 
 avg_eval # average epochs run, loss and metrics
 # epochs          100.000000
-# loss              0.588246
-# f1                0.426455
-# accuracy          0.776541
-# val_loss          0.623453
-# val_f1            0.375620
-# val_accuracy      0.820989
-# dtype: float64
+# loss              0.589398
+# f1                0.425527
+# accuracy          0.761276
+# val_loss          0.578219
+# val_f1            0.420985
+# val_accuracy      0.837660
+# # dtype: float64
 
 # run with early stopping with patience = 50, stopped val loss does not improve for 50 epochs
 eval_tab, avg_eval = bmf.eval_iter(model, 
@@ -498,21 +530,74 @@ eval_tab, avg_eval = bmf.eval_iter(model,
 
 eval_tab # epochs run, loss and metrics at the end of each model iteration 
 #    epochs      loss        f1  accuracy  val_loss    val_f1  val_accuracy
-# 0      21  0.580059  0.434260  0.777816  0.578979  0.420193      0.839751
-# 1       6  0.578403  0.435985  0.778817  0.579158  0.420503      0.840722
-# 2     100  0.581006  0.433445  0.778084  0.589150  0.410152      0.839808
-# 3       9  0.579249  0.435162  0.779330  0.578513  0.419461      0.841465
-# 4     100  0.578671  0.436076  0.778646  0.579156  0.419579      0.839808
+# 0      49  0.582074  0.432602  0.760383  0.576424  0.422503      0.832724
+# 1     100  0.574322  0.439943  0.770442  0.578061  0.421115      0.838723
+# 2      15  0.580187  0.434362  0.765828  0.574082  0.425293      0.835295
+# 3       2  0.580271  0.434497  0.769905  0.573786  0.425296      0.836723
+# 4      41  0.578504  0.436215  0.767488  0.574045  0.425328      0.836209
 # variation in epochs run, however loss and metrics were consistent between runs
 
 avg_eval # average epochs run, loss and metrics
-# epochs          47.200000
-# loss             0.579477
-# f1               0.434985
-# accuracy         0.778538
-# val_loss         0.580991
-# val_f1           0.417977
-# val_accuracy     0.840311
+# epochs          41.400000
+# loss             0.579072
+# f1               0.435524
+# accuracy         0.766809
+# val_loss         0.575280
+# val_f1           0.423907
+# val_accuracy     0.835935
 # dtype: float64
-# similar metrics as the run without patience, likely cause loss and metrics plateaued
+# similar metrics as the run without early stopping, likely because loss and metrics plateaued
 # seems like early stopping can be applied given the similar performances of the models despite running for various epochs
+
+
+# run with hyperparameter function
+# specify parameters/hyperparameters
+# hidden neuron variables differ from prior parameter specification
+# also added lookback and n_outputs parameters into dictionary
+params = {'atype': 'ENDE',
+          'mtype': 'GRU',
+          'lookback': lookback,
+          'n_outputs':n_output,
+          'hidden_layers': 1,
+          'neurons_n': 20,
+          'hidden_n0': 10,
+          'hidden_n1': 10,
+          'td_neurons': 5,
+          'learning_rate': 0.001,
+          'dropout_rate': 0.3,               
+          'loss': False,
+          'epochs': 100,
+          'batch_size': 512,
+          'weights_0': 1,
+          'weights_1': 1,
+          'weights_2': 3,
+          'weights_3': 1}
+
+model = model = bmf.hyp_nest(params, features, targets)
+model.summary() # looks identical to prior model as expected
+# Model: "sequential_4"
+# _________________________________________________________________
+# Layer (type)                 Output Shape              Param #   
+# =================================================================
+# Masking (Masking)            (None, 5, 26)             0         
+# _________________________________________________________________
+# GRU (GRU)                    (None, 20)                2880      
+# _________________________________________________________________
+# dropout_8 (Dropout)          (None, 20)                0         
+# _________________________________________________________________
+# dense_8 (Dense)             (None, 10)                210       
+# _________________________________________________________________
+# dropout_9 (Dropout)         (None, 10)                0         
+# _________________________________________________________________
+# repeat_vector_4 (RepeatVecto (None, 1, 10)             0         
+# _________________________________________________________________
+# gru_3 (GRU)                  (None, 1, 20)             1920      
+# _________________________________________________________________
+# time_distributed_8 (TimeDist (None, 1, 5)              105       
+# _________________________________________________________________
+# time_distributed_9 (TimeDist (None, 1, 4)              24        
+# =================================================================
+# Total params: 5,139
+# Trainable params: 5,139
+# Non-trainable params: 0
+# _________________________________________________________________
