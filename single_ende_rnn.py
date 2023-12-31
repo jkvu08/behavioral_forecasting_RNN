@@ -9,21 +9,13 @@ This code can be used to manually tune parameters by monitoring the loss plots, 
 """
 # Load libraries
 import os
-#import time
 import numpy as np
 from numpy import newaxis
-#from matplotlib import pyplot as plt
-#import pandas as pd
 from pandas import read_csv
-#from sklearn.metrics import confusion_matrix, classification_report, ConfusionMatrixDisplay, f1_score
-#import tensorflow as tf
 from tensorflow.keras.layers import Dense, Dropout, LSTM, Masking, RepeatVector, TimeDistributed
-#from tensorflow_addons.metrics import F1Score
 from tensorflow.keras.callbacks import EarlyStopping
-#from tensorflow.keras.preprocessing import sequence
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.models import Sequential
-#from keras.callbacks import Callback
 
 ######################
 #### Data Import #####
@@ -547,57 +539,3 @@ avg_eval # average epochs run, loss and metrics
 # val_accuracy     0.835935
 # dtype: float64
 # similar metrics as the run without early stopping, likely because loss and metrics plateaued
-# seems like early stopping can be applied given the similar performances of the models despite running for various epochs
-
-
-# run with hyperparameter function
-# specify parameters/hyperparameters
-# hidden neuron variables differ from prior parameter specification
-# also added lookback and n_outputs parameters into dictionary
-params = {'atype': 'ENDE',
-          'mtype': 'GRU',
-          'lookback': lookback,
-          'n_outputs':n_output,
-          'hidden_layers': 1,
-          'neurons_n': 20,
-          'hidden_n0': 10,
-          'hidden_n1': 10,
-          'td_neurons': 5,
-          'learning_rate': 0.001,
-          'dropout_rate': 0.3,               
-          'loss': False,
-          'epochs': 100,
-          'batch_size': 512,
-          'weights_0': 1,
-          'weights_1': 1,
-          'weights_2': 3,
-          'weights_3': 1}
-
-model = model = bmf.hyp_nest(params, features, targets)
-model.summary() # looks identical to prior model as expected
-# Model: "sequential_4"
-# _________________________________________________________________
-# Layer (type)                 Output Shape              Param #   
-# =================================================================
-# Masking (Masking)            (None, 5, 26)             0         
-# _________________________________________________________________
-# GRU (GRU)                    (None, 20)                2880      
-# _________________________________________________________________
-# dropout_8 (Dropout)          (None, 20)                0         
-# _________________________________________________________________
-# dense_8 (Dense)             (None, 10)                210       
-# _________________________________________________________________
-# dropout_9 (Dropout)         (None, 10)                0         
-# _________________________________________________________________
-# repeat_vector_4 (RepeatVecto (None, 1, 10)             0         
-# _________________________________________________________________
-# gru_3 (GRU)                  (None, 1, 20)             1920      
-# _________________________________________________________________
-# time_distributed_8 (TimeDist (None, 1, 5)              105       
-# _________________________________________________________________
-# time_distributed_9 (TimeDist (None, 1, 4)              24        
-# =================================================================
-# Total params: 5,139
-# Trainable params: 5,139
-# Non-trainable params: 0
-# _________________________________________________________________
