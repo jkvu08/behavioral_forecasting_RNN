@@ -83,7 +83,7 @@ def to_supervised(data, TID, window, lookback, n_output=7):
         if out_end <= len(data) and len(set(TID[in_start:out_end])) == 1:
             X.append(data[in_start:in_end, :]) # append input sequence to features list
             y.append(data[in_end:out_end, 0:4]) # append output to the targets list
-            dft.append(data[in_end:out_end,4:18]) # append the deterministic features for current timestep to the deterministic features list
+            dft.append(data[in_end:out_end,7:28]) # append the deterministic features for current timestep to the deterministic features list
         in_start += window # move along the window time step
     # convert lists to array
     X = np.array(X) 
