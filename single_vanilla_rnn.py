@@ -10,9 +10,9 @@ This code can be used to manually tune parameters by monitoring the loss plots, 
 """
 # Load libraries
 import os
-import pandas as pd
+#import pandas as pd
 from pandas import read_csv
-import tensorflow as tf
+#import tensorflow as tf
 from tensorflow.keras.layers import Dense, Dropout, LSTM, Masking
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.models import Sequential
@@ -163,8 +163,7 @@ y_prob[0:10,:] # print subset
 #        [0.02675696, 0.9409276 , 0.01128296, 0.02103235]], dtype=float32)
 
 # generate prediction labels
-y_pred = bmf.to_label(y_prob,
-                      prob = True) # prob = True to draw from probability distribution, prob = False to pred based on max probability
+y_pred = bmf.to_label(y_prob, prob = True) # prob = True to draw from probability distribution, prob = False to pred based on max probability
 y_pred[0:10] # view subset of predictions
 # [1, 1, 0, 1, 1, 1, 1, 0, 3, 1] can see that 4 predictions differ from the target
 
@@ -303,7 +302,7 @@ early_stopping = EarlyStopping(monitor='val_loss', # monitor validation loss
                                verbose=1) # print progress
 
 # fit the model
-history1 = model.fit(train_X, 
+history = model.fit(train_X, 
                     train_y, 
                     validation_data=(test_X,test_y),
                     epochs = 100, 
@@ -356,8 +355,7 @@ y_proba[0:10,:]
 #       dtype=float32)
 
 # generate prediction labels
-y_pred = bmf.to_label(y_proba,
-                      prob = True) # prob = True to draw from probability distribution, prob = False to pred based on max probability
+y_pred = bmf.to_label(y_prob, prob = True) # prob = True to draw from probability distribution, prob = False to pred based on max probability
 y_val[0:10] # view observed targets
 # [1, 3, 1, 1, 1, 1, 1, 1, 1, 1]
 y_pred[0:10] # view subset of predictions
@@ -434,7 +432,7 @@ eval_tab # epochs run, loss and metrics at the end of each model iteration
 # 2     100  0.566893  0.447899  0.775716  0.581640  0.417230      0.837751
 # 3     100  0.564228  0.449986  0.776253  0.580436  0.418522      0.836952
 # 4     100  0.565326  0.449062  0.775545  0.584795  0.413532      0.833295
-# similar performance across iterations
+# similar performance across iterations, may not need to run multiple iterations
 
 avg_eval # average epochs run, loss and metrics
 # epochs          100.000000
@@ -477,3 +475,4 @@ avg_eval # average epochs run, loss and metrics
 # val_accuracy     0.838448
 # dtype: float64
 # similar metrics as the run without patience, likely cause loss and metrics plateaued
+# seems like early stopping can be applied given the similar performances of the models despite running for various epochs

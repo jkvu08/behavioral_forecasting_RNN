@@ -498,20 +498,21 @@ eval_tab, avg_eval = bmf.eval_iter(model,
 
 eval_tab # epochs run, loss and metrics at the end of each model iteration 
 #    epochs      loss        f1  accuracy  val_loss    val_f1  val_accuracy
-# 0      29  0.563981  0.450507  0.776888  0.580384  0.418536      0.838494
-# 1     100  0.561938  0.452078  0.777376  0.584681  0.414455      0.836152
-# 2      31  0.561969  0.452241  0.778011  0.581433  0.417510      0.839865
-# 3       1  0.562095  0.452232  0.777889  0.580416  0.418613      0.839865
-# 4     100  0.559126  0.455184  0.779012  0.583763  0.414756      0.837866
+# 0      21  0.580059  0.434260  0.777816  0.578979  0.420193      0.839751
+# 1       6  0.578403  0.435985  0.778817  0.579158  0.420503      0.840722
+# 2     100  0.581006  0.433445  0.778084  0.589150  0.410152      0.839808
+# 3       9  0.579249  0.435162  0.779330  0.578513  0.419461      0.841465
+# 4     100  0.578671  0.436076  0.778646  0.579156  0.419579      0.839808
 # variation in epochs run, however loss and metrics were consistent between runs
 
 avg_eval # average epochs run, loss and metrics
-# epochs          52.200000
-# loss             0.561822
-# f1               0.452449
-# accuracy         0.777835
-# val_loss         0.582136
-# val_f1           0.416774
-# val_accuracy     0.838448
+# epochs          47.200000
+# loss             0.579477
+# f1               0.434985
+# accuracy         0.778538
+# val_loss         0.580991
+# val_f1           0.417977
+# val_accuracy     0.840311
 # dtype: float64
 # similar metrics as the run without patience, likely cause loss and metrics plateaued
+# seems like early stopping can be applied given the similar performances of the models despite running for various epochs

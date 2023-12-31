@@ -424,9 +424,9 @@ def build_ende(train_X, train_y, neurons_n = 10, hidden_n = 10, td_neurons = 10,
                       sample_weight_mode = 'temporal') # add sample weights, since class weights are not supported in 3D
     return model
 
-#################################
-#### Single model evaluation ####
-#################################
+##########################
+#### Model evaluation ####
+##########################
 def monitoring_plots(result, metrics):
     """
     plot the training and validation loss, f1 and accuracy
@@ -564,7 +564,7 @@ def result_summary(test_y, y_prob, path, filename):
 
 def eval_iter(model, params, train_X, train_y, test_X, test_y, patience = 0 , max_epochs = 300, atype = 'VRNN', n = 1):
     """
-    Fit and evaluate model n number of times. Get the average of those runs
+    pipeline for fitting and evaluating the model n number of times. 
 
     Parameters
     ----------
@@ -581,8 +581,8 @@ def eval_iter(model, params, train_X, train_y, test_X, test_y, patience = 0 , ma
 
     Returns
     -------
-    eval_run : metrics for each iteration
-    avg_val: average of the metrics average: val_f1, val_loss, train_f1, train_loss 
+    eval_run : dataframe of epochs, loss, and metrics for each iteration
+    avg_val: average of the epochs, loss, and metrics (training and validation) across iterations 
     """
     # assign class weights
     weights = dict(zip([0,1,2,3], 
@@ -628,12 +628,10 @@ def eval_iter(model, params, train_X, train_y, test_X, test_y, patience = 0 , ma
             for v in history.history.values():
                 mod_eval.append(v[-patience-1]) # append ending metrics
         eval_run.append(mod_eval)
-  #  avg_val = np.mean(eval_run,axis=0)
     eval_run = pd.DataFrame(eval_run, columns = ['epochs'] + list(history.history.keys()))
     avg_val = eval_run.mean(axis =0)
     params['epochs'] = int(avg_val[0])
     return eval_run, avg_val
-   # return eval_run, avg_val[0], avg_val[1], avg_val[2], avg_val[3],avg_val[4], avg_val[5],avg_val[6]
 
 ###########################
 #### Hyperoptimization ####
