@@ -85,13 +85,13 @@ model.add(Masking(mask_value = -1,
                   input_shape = (lookback, features), 
                   name = 'Masking')) 
 # set the RNN type
-model.add(LSTM(units =neurons_n, 
+model.add(LSTM(units = neurons_n, 
                input_shape = (lookback,features), 
                name = 'LSTM')) 
 # add dense layer & set activation function
 model.add(Dense(units = hidden_n, 
                 activation = 'relu', 
-                kernel_initializer =  'he_uniform')) 
+                kernel_initializer = 'he_uniform')) 
 # add dropout
 model.add(Dropout(rate= d_rate)) 
 # add output layer
@@ -180,8 +180,9 @@ lstm_score, _, _, _ = bmf.result_summary(test_y,
 # view output file results
 
 # build model using wrapper
-model = bmf.build_rnn(train_X, 
-                      train_y, 
+model = bmf.build_rnn(features = features, 
+                      targets = targets,
+                      lookback = lookback,
                       neurons_n = 20, 
                       hidden_n = 10, 
                       lr_rate = 0.001, 
@@ -222,7 +223,7 @@ history = model.fit(train_X,
                     epochs = 100, 
                     batch_size = 512,
                     class_weight=weights,
-                #    callbacks = [early_stopping],
+                    callbacks = [early_stopping],
                     shuffle=False,
                     verbose = 2)
 
@@ -251,8 +252,7 @@ y_prob[0:10,:] # print subset
 #        [0.02142691, 0.9492494 , 0.01109311, 0.01823056]], dtype=float32)
 
 # generate prediction labels
-y_pred = bmf.to_label(y_prob,
-                      prob = True) # prob = True to draw from probability distribution, prob = False to pred based on max probability
+y_pred = bmf.to_label(y_prob, prob = True) # prob = True to draw from probability distribution, prob = False to pred based on max probability
 y_val[0:10] # view observed targets
 # [1, 3, 1, 1, 1, 1, 1, 1, 1, 1]
 y_pred[0:10] # view subset of predictions
@@ -265,8 +265,9 @@ gru_score, _, _, _ = bmf.result_summary(test_y,
 # gru_score = 0.327, slightly higher f1 score compared to lstm model
 
 # build model using f1_loss function
-model = bmf.build_rnn(train_X, 
-                      train_y, 
+model = bmf.build_rnn(features = features,
+                      targets = targets,
+                      lookback = lookback,
                       neurons_n = 20, 
                       hidden_n = 10, 
                       lr_rate = 0.001, 
@@ -371,6 +372,7 @@ gru_score_f1, _, _, _ = bmf.result_summary(test_y,
 # test same model multiple times
 params = {'atype': 'VRNN',
           'mtype': 'GRU',
+          'lookback': lookback,
           'hidden_layers': 1,
           'neurons_n': 20,
           'hidden_n': 10,
@@ -384,8 +386,9 @@ params = {'atype': 'VRNN',
           'weights_2': 3,
           'weights_3': 1}
 
-model = bmf.build_rnn(train_X, 
-                      train_y, 
+model = bmf.build_rnn(features = features,
+                      targets = targets,
+                      lookback = params['lookback'], 
                       layers = params['hidden_layers'], 
                       neurons_n = params['neurons_n'], 
                       hidden_n = params['hidden_n'], 

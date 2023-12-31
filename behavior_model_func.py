@@ -138,19 +138,7 @@ def one_hot_decode(encoded_seq):
     else: # otherwise there are multiple predictions to decode
         return [np.argmax(vector) for vector in encoded_seq] # returns the index with the max value
 
-# from ende - used to subset from probs
-# def one_hot_decode(encoded_seq):
-#     """
-#     Reverse one_hot encoding
-#     Arguments:
-#         encoded_seq: array of one-hot encoded data 
-# 	Returns:
-# 		series of labels
-# 	"""
-#     pred = [np.random.multinomial(1,vector) for vector in encoded_seq]
-#     return [np.argmax(vector) for vector in pred] # returns the index with the max value
-
-# function to adjust the prediction prob between 0 and 1, due to the estimatio of the f1 loss function, sometimes class prob predictions don't exactly sum to 1
+# function to adjust the prediction prob between 0 and 1, due to precision of class weights/sample weigths and f1 loss function
 def prob_adjust(y_prob):
     """
     ensure probabiltiies fall between 0 and 1 by subtracting small number (0.0001) from the largest probability
@@ -285,14 +273,33 @@ def f1_loss(y_true, y_pred):
                   f1) # else set to f1 score
     return 1 - K.mean(f1) # calculate loss f1
 
-def build_rnn(train_X, train_y, neurons_n=10, hidden_n=10, lr_rate=0.001, d_rate = 0.2, layers = 1, mtype = 'LSTM', cat_loss = True):
+params = {'atype': 'VRNN',
+          'mtype': 'GRU',
+          'lookback': lookback,
+          'hidden_layers': 1,
+          'neurons_n': 20,
+          'hidden_n': 10,
+          'learning_rate': 0.001,
+          'dropout_rate': 0.3,               
+          'loss': False,
+          'epochs': 100,
+          'batch_size': 512,
+          'weights_0': 1,
+          'weights_1': 1,
+          'weights_2': 3,
+          'weights_3': 1}
+
+def build_rnn(features, targets, lookback, neurons_n=10, hidden_n=[10], lr_rate=0.001, d_rate = 0.2, layers = 1, mtype = 'LSTM', cat_loss = True):
     """
     Vanilla LSTM for single timestep output prediction (one-to-one or many-to-one)
     
     Parameters
     ----------
+    features: int, number of features
+    targets: int, number of targets to predict
+    lookback: int, number of timesteps prior to use for prediction 
     neurons_n : int,number of neurons, (the default is 10).
-    hidden_n : int, number of hidden neurons, (the default is 10).
+    hidden_n : list lenght of layers with number of hidden neurons, (the default is 10).
     lr_rate : float, learning rate (the default is 0.001).
     d_rate : float, drop out rate (the default is 0.2).
     layers: 1 
@@ -303,10 +310,7 @@ def build_rnn(train_X, train_y, neurons_n=10, hidden_n=10, lr_rate=0.001, d_rate
     -------
     model : model
     """
-    features = train_X.shape[2] # get the number of features
-    lookback = train_X.shape[1] # get the lookback period
-    targets = train_y.shape[1] # get the target number
-    
+
     # create an empty sequential shell 
     model = Sequential() 
     # add a masking layer to tell the model to ignore missing values (i.e., values of -1)
@@ -326,7 +330,7 @@ def build_rnn(train_X, train_y, neurons_n=10, hidden_n=10, lr_rate=0.001, d_rate
                       name = 'GRU')) # set the RNN type
     for i in range(layers): # for each hidden layer
         # add dense layer
-        model.add(Dense(units = hidden_n, 
+        model.add(Dense(units = hidden_n[i], 
                         activation = 'relu', 
                         kernel_initializer =  'he_uniform')) 
         model.add(Dropout(rate = d_rate)) # add dropout
@@ -345,16 +349,18 @@ def build_rnn(train_X, train_y, neurons_n=10, hidden_n=10, lr_rate=0.001, d_rate
                       metrics = [f1, 'accuracy']) # monitor metrics
     return model 
 
-def build_ende(train_X, train_y, neurons_n = 10, hidden_n = 10, td_neurons = 10, lr_rate  = 0.001, d_rate = 0.2, layers = 1, mtype = 'LSTM', cat_loss = True):
+def build_ende(features, targets, lookback, n_outputs, neurons_n = 10, hidden_n = [10], td_neurons = 10, lr_rate  = 0.001, d_rate = 0.2, layers = 1, mtype = 'LSTM', cat_loss = True):
     """
     Single encoder-decoder model
 
     Parameters
     ----------
-    train_X : training features
-    train_y : training predictions
+    features: int, number of features
+    targets: int, number of targets to predict
+    n_outputs: int, number of timesteps to predict
+    lookback: int, number of timesteps prior to use for prediction
     neurons_n : number of neurons. The default is 10.
-    hidden_n : number of hidden neurons. The default is 10.
+    hidden_n : list of number of hidden neurons. The default is 10.
     td_neurons : number of timde distributed neurons. The default is 10.
     lr_rate : Learning rate. The default is 0.001.
     d_rate : dropout rate. The default is 0.2.
@@ -366,12 +372,7 @@ def build_ende(train_X, train_y, neurons_n = 10, hidden_n = 10, td_neurons = 10,
     -------
     model : compiled model
 
-    """
-    lookback = train_X.shape[1] # set lookback
-    features = train_X.shape[2] # set features
-    n_outputs = train_y.shape[1] # set prediction timesteps
-    targets = train_y.shape[2] # set number of targets per timesteps
-    
+    """   
     # create an empty sequential shell 
     model = Sequential() 
     # add a masking layer to tell the model to ignore missing values (i.e., values of -1)
@@ -636,6 +637,80 @@ def eval_iter(model, params, train_X, train_y, test_X, test_y, patience = 0 , ma
 ###########################
 #### Hyperoptimization ####
 ###########################
+def hyp_nest(params, features, targets):
+    if params['atype'] == 'VRNN':
+        model = build_rnn(features, 
+                          targets, 
+                          lookback = params['lookback'], 
+                          neurons_n=params['neurons_n'],
+                          hidden_n=[params['hidden_n0'], params['hidden_n1']],
+                          lr_rate =params['learning_rate'],
+                          d_rate = params['dropout_rate'],
+                          layers = params['hidden_layers'], 
+                          mtype = params['mtype'], 
+                          cat_loss = params['loss'])
+    elif params['atype'] == 'ENDE':
+        model = build_ende(features, 
+                           targets, 
+                           lookback = params['lookback'], 
+                           n_outputs = params['n_outputs'], 
+                           neurons_n=params['neurons_n'],
+                           hidden_n=[params['hidden_n0'], params['hidden_n1']],
+                           td_neurons = params['td_neurons'], 
+                           lr_rate =params['learning_rate'],
+                           d_rate = params['dropout_rate'],
+                           layers = params['hidden_layers'], 
+                           mtype = params['mtype'],
+                           cat_loss = params['loss'])
+    else:
+        raise Exception ('invalid model architecture')    
+   
+    return model
+
+def hyp_ende_nest(params, features, targets):
+    """
+    Encoder-decoder LSTM for single timestep output prediction (one-to-one or many-to-one)
+    With nested architecture
+    Parameters
+    ----------
+    params: hyperparameters 
+    features: number of features
+    targets: number of targets
+    Returns
+    -------
+    model : model
+    """ 
+    lookback = params['lookback'] # extract lookbackf
+    n_outputs = params['n_output'] # extract output
+    model = Sequential() # create an empty sequential shell 
+    model.add(Masking(mask_value = -1, 
+                      input_shape = (lookback, features), 
+                      name = 'Masking')) # add a masking layer to tell the model to ignore missing values
+    if params['mtype']=='LSTM': # if the model is an LSTM
+        model.add(LSTM(units =params['neurons_n0'], input_shape = (lookback,features), return_sequences= False, name = 'LSTM')) # set the RNN type
+        model.add(Dropout(rate= params['drate'])) # add another drop out
+        for i in range(params['hidden_layers']): # increase the model complexity through adding more hidden layers 
+             model.add(Dense(units = params['hidden_n'+str(i)], activation = 'relu', kernel_initializer =  'he_uniform')) # add dense layer
+             model.add(Dropout(rate= params['drate'])) # add dropout rate
+    else: # the model is a GRU, set architecture accordingly
+        model.add(GRU(units =params['neurons_n0'], input_shape = (lookback,features), return_sequences= False)) # set the RNN type
+        model.add(Dropout(rate= params['drate'])) # add another drop out
+        for i in range(params['hidden_layers']):# increase complexity through hidden layers
+            model.add(Dense(units = params['hidden_n'+str(i)], activation = 'relu', kernel_initializer = 'he_uniform')) # add dense layer
+            model.add(Dropout(rate= params['drate'])) # add dropout layer
+    model.add(RepeatVector(n_outputs)) # repeats encoder context for each prediction timestep
+    if params['mtype']== 'LSTM': # if the model type is LSTM 
+        model.add(LSTM(units= params['neurons_n1'], input_shape = (lookback,features), return_sequences=True)) # set the RNN type
+    else: # else set the layer to GRU
+        model.add(GRU(units =params['neurons_n1'], input_shape = (lookback,features), return_sequences = True)) # set the RNN type
+    model.add(TimeDistributed(Dense(units = params['td_neurons'], activation='relu'))) # used to make sequential predictions, applies decoder fully connected layer to each prediction timestep
+    model.add(TimeDistributed(Dense(targets, activation = "softmax"))) # applies output layer to each prediction timestep
+    model.compile(loss = f1_loss, optimizer = Adam(learning_rate = params['learning_rate']), sample_weight_mode = 'temporal',metrics=[f1]) # compile the model
+  #  model.compile(loss = f1_loss, optimizer = Adam(learning_rate = params['learning_rate']), sample_weight_mode = 'temporal',metrics=[f1,'Accuracy','Precision', 'Recall', AUC(curve = 'ROC', name = 'ROC'), AUC(curve='PR',name ='PR')]) # compile the model
+    #model.compile(loss = 'categorical_crossentropy', optimizer = Adam(learning_rate = params['learning_rate']), sample_weight_mode = 'temporal', metrics = f1_score) # compile the model
+   # model.compile(loss = 'categorical_crossentropy', optimizer = Adam(learning_rate = params['learning_rate']), sample_weight_mode = 'temporal', metrics = ['CategoricalAccuracy', 'Accuracy', 'Precision', 'Recall', AUC(curve = 'ROC', name = 'ROC'), AUC(curve='PR',name ='PR')]) # compile the model
+    return model 
+
 def hyp_rnn_nest(params, features, targets):
     """
     Generate vanilla RNN for single timestep output prediction (one-to-one or many-to-one)
@@ -652,26 +727,29 @@ def hyp_rnn_nest(params, features, targets):
     model : model
     """ 
     lookback = params['lookback'] # assign lookback
-    model = Sequential() # create an empty sequential shell 
-    # add a masking layer to ignore missing values
+    # create an empty sequential shell 
+    model = Sequential() 
+    # add a masking layer to tell the model to ignore missing values (i.e., values of -1)
     model.add(Masking(mask_value = -1, 
                       input_shape = (lookback, features), 
-                      name = 'Masking')) 
+                      name = 'Masking'))
     # set the RNN type
-    if params['mtype']=='LSTM': # if the model is an LSTM
+    if params['mtype']=='LSTM': # if the model type is LSTM
         model.add(LSTM(units =params['neurons_n'], 
                        input_shape = (lookback,features), 
-                       return_sequences= False, 
+                       #return_sequences= False, 
                        name = 'LSTM')) 
     elif params['mtype']=='GRU': # else if the model is a GRU, set architecture accordingly
         model.add(GRU(units =params['neurons_n'], 
                       input_shape = (lookback,features), 
-                      return_sequences= False,
+                     # return_sequences= False,
                       name = 'GRU'))
     else: # otherwise
         raise Exception ('invalid model architecture')
-    model.add(Dropout(rate= params['drate'])) # add drop out
-    for i in range(params['hidden_layers']):# increase complexity by adding hidden layers
+    # add drop out
+    model.add(Dropout(rate= params['dropout_rate'])) 
+    # increase complexity by adding hidden layers
+    for i in range(params['hidden_layers']):
         # add dense layer
         model.add(Dense(units = params['hidden_n'+str(i)], 
                         activation = 'relu', 
@@ -682,17 +760,14 @@ def hyp_rnn_nest(params, features, targets):
                     activation = "softmax", 
                     name = 'Output')) 
     # compile the model based on loss function
-    if params['loss'] == 'f1_loss':    
-        model.compile(loss = f1_loss, 
-                      optimizer = Adam(learning_rate = params['learning_rate']), 
-                      sample_weight_mode = 'temporal',
-                      metrics=[f1]) 
-        # model.compile(loss = f1_loss, optimizer = Adam(learning_rate = params['learning_rate']), sample_weight_mode = 'temporal',metrics=[f1,'Accuracy', 'Precision', 'Recall', AUC(curve = 'ROC', name = 'ROC'), AUC(curve='PR',name ='PR')]) # compile the model
+    if params['loss'] == True:    
+        model.compile(loss = 'categorical_crossentropy', # use categorical crossentropy loss
+                      optimizer = Adam(learning_rate = params['learning_rate']), # set learning rate 
+                      metrics = [f1, 'accuracy']) # monitor metrics     
     else:
-        model.compile(loss = 'categorical_crossentropy', 
-                      optimizer = Adam(learning_rate = params['learning_rate']), 
-                      metrics = [F1Score(num_classes=4, average = 'macro')]) # compile the model
-        #  model.compile(loss = 'categorical_crossentropy', optimizer = Adam(learning_rate = params['learning_rate']), metrics = [F1Score(num_classes=4, average = 'macro'), 'Accuracy', 'Precision', 'Recall', AUC(curve = 'ROC', name = 'ROC'), AUC(curve='PR',name ='PR')]) # compile the model
+        model.compile(loss = f1_loss, # otherwise use f1 loss 
+                      optimizer = Adam(learning_rate = params['lrate']), # set learning rate 
+                      metrics = [f1, 'accuracy']) # monitor metrics
     return model 
 
 def run_trials(filename, objective, space, rstate, initial = 20, trials_step = 1):
