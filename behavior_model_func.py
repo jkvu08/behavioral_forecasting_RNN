@@ -591,7 +591,8 @@ def eval_iter(model, params, train_X, train_y, test_X, test_y, patience = 0 , ma
             for v in history.history.values():
                 mod_eval.append(v[-patience-1]) # append ending metrics
         eval_run.append(mod_eval)
-    eval_run = pd.DataFrame(eval_run, columns = ['epochs'] + list(history.history.keys()))
+    eval_run = pd.DataFrame(eval_run, 
+                            columns = ['epochs','train_loss','train_f1','train_acc',
+                                       'val_loss','val_f1','val_acc'])
     avg_val = eval_run.mean(axis =0)
-    params['epochs'] = int(avg_val[0])
     return eval_run, avg_val

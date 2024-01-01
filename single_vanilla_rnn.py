@@ -47,15 +47,14 @@ datasub.columns
 #       dtype='object')
 
 # subset and reorder predictors
-# subset and reorder predictors
 datasub = datasub[['ID', 'TID', 'track_position', 'track_length', 'focal', 'year', # identifiers
                    'feed', 'rest', 'social', 'travel', # behaviors         
-                   'individual_continuity', 'length', 'position', # sampling features 
-                   'gestation', 'lactation', 'mating', 'nonreproductive', 'sex', # internal features 
-                   'since_rest', 'since_feed', 'since_travel', # internal features
+                   'since_rest', 'since_feed', 'since_travel', 'sex', # internal features  
+                   'gestation', 'lactation', 'mating', 'nonreproductive', # internal or external features - reproductive state can be both
                    'fragment', 'rain', 'temperature', 'flower_count', 'fruit_count', # external features
                    'years', 'minutes_sin', 'minutes_cos', 'doy_sin','doy_cos', # external/time features
-                   'adults', 'infants', 'juveniles']] # external/group features
+                   'adults', 'infants', 'juveniles', # external/group features
+                   'individual_continuity', 'length', 'position']] # sampling features 
 
 #####################
 #### Data Format ####
@@ -458,22 +457,22 @@ eval_tab, avg_eval = bmf.eval_iter(model,
                                    n = 5)
 
 eval_tab # epochs run, loss and metrics at the end of each model iteration 
-#    epochs      loss        f1  accuracy  val_loss    val_f1  val_accuracy
-# 0     100  0.589519  0.425900  0.759260  0.574998  0.423891      0.832038
-# 1     100  0.583178  0.431669  0.765950  0.578471  0.419822      0.834952
-# 2     100  0.581183  0.433574  0.766414  0.576195  0.422591      0.833924
-# 3     100  0.576348  0.438019  0.769099  0.574497  0.424145      0.835809
-# 4     100  0.573922  0.441065  0.771565  0.574919  0.423797      0.838951
+#    epochs  train_loss  train_f1  train_acc  val_loss    val_f1   val_acc
+# 0     100    0.594514  0.422973   0.767732  0.580153  0.419147  0.836952
+# 1     100    0.589609  0.425831   0.769588  0.580360  0.418597  0.837637
+# 2     100    0.586592  0.428185   0.768855  0.582417  0.416561  0.835523
+# 3     100    0.579520  0.435579   0.771248  0.582489  0.416584  0.838608
+# 4     100    0.577344  0.437561   0.772713  0.580199  0.418540  0.835980
 # similar performance across iterations, may not need to run multiple iterations
 
 avg_eval # average epochs run, loss and metrics
-# epochs          100.000000
-# loss              0.580830
-# f1                0.434045
-# accuracy          0.766458
-# val_loss          0.575816
-# val_f1            0.422849
-# val_accuracy      0.835135
+# epochs            100.000000
+# train_loss          0.585516
+# train_f1            0.430026
+# train_acc           0.770027
+# val_loss            0.581124
+# val_f1              0.417886
+# val_acc             0.836940
 # dtype: float64
 
 # run with early stopping with patience = 50, stopped val loss does not improve for 50 epochs
@@ -491,22 +490,22 @@ eval_tab, avg_eval = bmf.eval_iter(model,
 eval_tab 
 # epoch after which validation loss did not improve after 50 epochs, 
 # loss and metrics at the end of each model iteration 
-#    epochs      loss        f1  accuracy  val_loss    val_f1  val_accuracy
-# 0      38  0.572561  0.442199  0.768342  0.572085  0.426930      0.837409
-# 1       1  0.572178  0.442442  0.770564  0.573464  0.426788      0.837294
-# 2       3  0.568788  0.445826  0.772078  0.572362  0.426318      0.838608
-# 3      10  0.572230  0.441331  0.772420  0.573192  0.426671      0.838608
-# 4      22  0.570959  0.443702  0.771883  0.574267  0.424840      0.838723
+#    epochs  train_loss  train_f1  train_acc  val_loss    val_f1   val_acc
+# 0     100    0.574642  0.440062   0.773519  0.579800  0.418776  0.837523
+# 1      25    0.575618  0.438945   0.773665  0.578125  0.420727  0.836495
+# 2     100    0.576639  0.437690   0.774593  0.579480  0.419330  0.837351
+# 3       6    0.577713  0.437227   0.771468  0.577878  0.420991  0.835923
+# 4      41    0.573783  0.440969   0.773909  0.577832  0.421227  0.837751
 # variation in epochs, however loss and metrics were consistent between runs
 
 avg_eval # average epochs run, loss and metrics
-# epochs          14.800000
-# loss             0.571343
-# f1               0.443100
-# accuracy         0.771057
-# val_loss         0.573074
-# val_f1           0.426309
-# val_accuracy     0.838128
+# epochs        54.400000
+# train_loss     0.575679
+# train_f1       0.438979
+# train_acc      0.773431
+# val_loss       0.578623
+# val_f1         0.420210
+# val_acc        0.837009
 # dtype: float64
 # similar metrics as the run without patience, likely cause loss and metrics plateaued and only after a few epochs
 # seems like early stopping can be applied given the similar performances of the models despite running for various epochs
