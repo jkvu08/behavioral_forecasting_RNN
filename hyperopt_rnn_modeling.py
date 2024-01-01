@@ -117,8 +117,8 @@ def hyp_nest(params, features, targets):
         model = bmf.build_rnn(features, 
                               targets, 
                               lookback = params['lookback'], 
-                              neurons_n=params['neurons_n'],
-                              hidden_n=[params['hidden_n0'], params['hidden_n1']],
+                              neurons_n = params['neurons_n'],
+                              hidden_n = [params['hidden_n0'],params['hidden_n1']],
                               learning_rate =params['learning_rate'],
                               dropout_rate = params['dropout_rate'],
                               layers = params['hidden_layers'], 
@@ -129,8 +129,9 @@ def hyp_nest(params, features, targets):
                                targets, 
                                lookback = params['lookback'], 
                                n_outputs = params['n_outputs'], 
-                               neurons_n=params['neurons_n'],
-                               hidden_n=[params['hidden_n0'], params['hidden_n1']],
+                               neurons_n0 = params['neurons_n0'],
+                               neurons_n1 = params['neurons_n1'],
+                               hidden_n = [params['hidden_n0'],params['hidden_n1']],
                                td_neurons = params['td_neurons'], 
                                learning_rate =params['learning_rate'],
                                dropout_rate = params['dropout_rate'],
@@ -232,7 +233,7 @@ def hyperoptimizer_rnn(params):
 
 def run_trials(filename, objective, space, rstate, initial = 20, trials_step = 1):
     """
-    Run and save trials indefinitely until manually stopped. 
+    Run and save hyperoptimization experiments.
     Used to run trials in small batches and periodically save to file.
     
     Parameters
@@ -269,8 +270,7 @@ def run_trials(filename, objective, space, rstate, initial = 20, trials_step = 1
     joblib.dump(trials, filename) # save the trials object
     return max_trials
 
-
-def iter_trials(space, objective, seed, steps, n = 1000):
+def iter_trials(space, seed, steps, n = 1000):
     """
     function to run hyperparameter optimization experiments    
 
@@ -291,10 +291,10 @@ def iter_trials(space, objective, seed, steps, n = 1000):
     while g < n: # which number of experiments is less than maximum experiments
     # run the experiment
         g = run_trials(filename =  space['atype'] + '_' +space['mtype'] +'_' + space['predictor'] + '_' + str(seed) +'.pkl', # assign filename
-                       objective = objective, # assign objective function for hyperopt evaluation
+                       objective = hyperoptimizer_rnn, # assign objective function for hyperopt evaluation
                        space = space, # search space
                        rstate = seed, # random seed
-                       initial= 25, # number of experiments to run before first save
+                       initial= 25, # number of experiments to run before first save, want at least 20 since hyperopt uses random parameters within search space for the first 20 experiments
                        trials_step = steps) # number of experiments to run thereafter before saving
   
 ############################
@@ -305,7 +305,7 @@ def iter_trials(space, objective, seed, steps, n = 1000):
 vrnn_params = {'atype': 'VRNN',
               'mtype': 'GRU',
               'lookback': 5, 
-              'hidden_layers': 1,
+              'hidden_layers': 2,
               'neurons_n': 20,
               'hidden_n0': 10,
               'hidden_n1': 10,
@@ -511,44 +511,22 @@ ende_obj # view objective function output
 #  'val_f1': 0.42537400126457214,
 #  'val_acc': 0.8343235850334167}
 
-vrnn_params = {'atype': 'VRNN',
-              'mtype': 'GRU',
-              'iters': 1,
-              'lookback': 5, 
-              'n_outputs': 1,
-              'predictor':'full',
-              'hidden_layers': 1,
-              'neurons_n': 20,
-              'hidden_n0': 10,
-              'hidden_n1': 10,
-              'learning_rate': 0.001,
-              'dropout_rate': 0.3,               
-              'loss': False,
-              'epochs': 100,
-              'max_epochs': 100,
-              'patience': 30,
-              'batch_size': 512,
-              'weights_0': 1,
-              'weights_1': 1,
-              'weights_2': 3,
-              'weights_3': 1}
-
-# specify vanilla RNN parameter space using
+# specify vanilla RNN parameter space
 space_vrnn = {'atype'                  : 'VRNN',
               'mtype'                  : 'GRU',
               'iters'                  : 1,
               'lookback'               : scope.int(hp.quniform('lookback',1,23,1)),
               'n_outputs'              : 1,
               'predictor'              : 'behavior',
-              'hidden_layers'          : scope.int(hp.choice('layers',[0,1])),
+              'hidden_layers'          : scope.int(hp.quniform('layers',0,2,1)),
               'neurons_n'              : scope.int(hp.quniform('neurons_n',5,50,5)),
               'hidden_n0'              : scope.int(hp.quniform('hidden_n0',5,50,5)),
               'hidden_n1'              : scope.int(hp.quniform('hidden_n1',5,50,5)),
               'learning_rate'          : 0.001,
-              'dropout_rate'           : hp.quniform('drate',0.1,0.9,0.1),
+              'dropout_rate'           : hp.quniform('dropout_rate',0.1,0.9,0.1),
               'loss'                   : False,
-              'epochs'                 : 200,
-              'max_epochs'             : 200,
+              'epochs'                 : 50,
+              'max_epochs'             : 50,
               'patience'               : 30,
               'batch_size'             : 512,
               'weights_0'              : hp.quniform('weights_0',1,5,0.5),
@@ -557,80 +535,98 @@ space_vrnn = {'atype'                  : 'VRNN',
               'weights_3'              : scope.int(hp.quniform('weights_3',1,10,1))
               }
 
-# run hyperoptimization trial
-def iter_trials_vrnn(seed):
-    g = 0
-    while g < 1000:
-        g = run_trials(filename = 'vrnn' + '_' +space_vrnn['mtype'] +'_' + space_vrnn['covariate'] + '_'+str(seed)+'.pkl',objective =hyperoptimizer_vrnn, space =space_vrnn, rstate =seed, initial=25, trials_step=3)
+seed = 123
+run_trials(filename =  path + space_vrnn['atype'] + '_' + space_vrnn['mtype'] +'_' + space_vrnn['predictor'] + '_' + str(seed) +'.pkl', # assign filename
+                       objective = hyperoptimizer_rnn, # assign objective function for hyperopt evaluation
+                       space = space_vrnn, # search space
+                       rstate = seed, # random seed
+                       initial= 3, # number of experiments to run before first save
+                       trials_step = 2) # number of experiments to run thereafter before saving
 
-space_vrnn = {'covariate'              : 'full',
-              'drate'                  : hp.quniform('drate',0.1,0.5,0.1),
-              'neurons_n'              : scope.int(hp.quniform('neurons_n',5,50,5)),
-              'n_output'               : 1,
-              'learning_rate'          : 0.001,
-              'hidden_layers'          : 0,
-              'hidden_n0'              : 0,
+# output 
+# validation for trial:
+# 0.4292759597301483                                                             
+# 100%|██████████| 3/3 [01:56<00:00, 38.90s/trial, best loss: 0.5712067484855652]
+# Best: {'dropout_rate': 0.4, 'hidden_n0': 45.0, 'hidden_n1': 50.0, 'layers': 1.0, 'lookback': 11.0, 'neurons_n': 35.0, 'weights_0': 3.0, 'weights_2': 22.0, 'weights_3': 1.0}
+# max_evals: 3
+# ran 3 since it was the initial run. 
+
+# run again to see if model is picking up from before
+run_trials(filename =  path + space_vrnn['atype'] + '_' + space_vrnn['mtype'] +'_' + space_vrnn['predictor'] + '_' + str(seed) +'.pkl', # assign filename
+                       objective = hyperoptimizer_rnn, # assign objective function for hyperopt evaluation
+                       space = space_vrnn, # search space
+                       rstate = seed, # random seed
+                       initial= 3, # number of experiments to run before first save
+                       trials_step = 2) # number of experiments to run thereafter before saving
+
+# output
+# Best validation for trial:                                                     
+# 0.4228237569332123                                                             
+# 100%|██████████| 5/5 [00:54<00:00, 27.14s/trial, best loss: 0.5712067484855652]
+# Best: {'dropout_rate': 0.4, 'hidden_n0': 45.0, 'hidden_n1': 50.0, 'layers': 1.0, 'lookback': 11.0, 'neurons_n': 35.0, 'weights_0': 3.0, 'weights_2': 22.0, 'weights_3': 1.0}
+# max_evals: 5
+# see that the runs continued from prior, resulting in 5 total experiments saved
+
+### NEED TO EVALUATE HYPEROPT MODELS VISUALS
+
+# specify encoder-decoder RNN parameter space
+space_ende = {'atype'                  : 'ENDE',
+              'mtype'                  : 'GRU',
+              'iters'                  : 1,
               'lookback'               : scope.int(hp.quniform('lookback',1,23,1)),
-              'epochs'                 : 200,
-              'batch_size'             : 512,
-              'weights_0'              : hp.quniform('weights_0',1,3,0.5),
-              'weights_1'              : 1,
-              'weights_2'              : hp.quniform('weights_2',1,12,1),
-              'weights_3'              : hp.quniform('weights_3',1,5,0.5),
-              'mtype'                  : 'GRU'
-              }
-  
-
-
-space_ende = {'covariate'              : 'behavior',
-              'drate'                  : hp.quniform('drate',0.1,0.9,0.1),
-              'neurons_n0'             : scope.int(hp.quniform('neurons_n0',5,50,5)),
-              'neurons_n1'             : scope.int(hp.quniform('neurons_n1',5,50,5)),
-              'n_output'               : 1,
-              'learning_rate'          : 0.001,
-              'td_neurons'             : scope.int(hp.quniform('td_neurons',5,50,5)),
-              'hidden_layers'          : scope.int(hp.choice('layers',[0,1])),
+              'n_outputs'              : 1,
+              'predictor'              : 'behavior',
+              'hidden_layers'          : scope.int(hp.quniform('layers',0,2,1)),
+              'neurons_n0'              : scope.int(hp.quniform('neurons_n0',5,50,5)),
+              'neurons_n1'              : scope.int(hp.quniform('neurons_n1',5,50,5)),
               'hidden_n0'              : scope.int(hp.quniform('hidden_n0',5,50,5)),
-              'lookback'               : scope.int(hp.quniform('lookback',1,23,1)),
-              'epochs'                 : 200,
+              'hidden_n1'              : scope.int(hp.quniform('hidden_n1',5,50,5)),
+              'td_neurons'             : scope.int(hp.quniform('td_neurons',5,50,5)),
+              'learning_rate'          : 0.001,
+              'dropout_rate'           : hp.quniform('dropout_rate',0.1,0.9,0.1),
+              'loss'                   : False,
+              'epochs'                 : 50,
+              'max_epochs'             : 50,
+              'patience'               : 30,
               'batch_size'             : 512,
               'weights_0'              : hp.quniform('weights_0',1,5,0.5),
               'weights_1'              : 1,
               'weights_2'              : scope.int(hp.quniform('weights_2',1,25,1)),
-              'weights_3'              : scope.int(hp.quniform('weights_3',1,10,1)),
-              'mtype'                  : 'GRU'
+              'weights_3'              : scope.int(hp.quniform('weights_3',1,10,1))
               }
 
-# params = {'covariate': 'full',
-#           'drate': 0.3,
-#           'neurons_n0': 5,
-#           'neurons_n1': 0,
-#           'neurons_n': 5,
-#           'n_output': 1,
-#           'learning_rate': 0.001,
-#           'hidden_layers': 0,
-#           'hidden_n0': 10,
-#           'hidden_n': 50,
-#           'td_neurons': 5,
-#           'lookback': 21,
-#           'epochs': 200,
-#           'batch_size': 512,
-#           'weights_0': 1,
-#           'weights_1': 1,
-#           'weights_2': 3,
-#           'weights_3': 1,
-#           'mtype': 'GRU'}
+seed = 123
+run_trials(filename =  path + space_ende['atype'] + '_' + space_ende['mtype'] +'_' + space_ende['predictor'] + '_' + str(seed) +'.pkl', # assign filename
+                       objective = hyperoptimizer_rnn, # assign objective function for hyperopt evaluation
+                       space = space_ende, # search space
+                       rstate = seed, # random seed
+                       initial= 3, # number of experiments to run before first save
+                       trials_step = 2) # number of experiments to run thereafter before saving
 
+# output
+# Best validation for trial:                                                     
+# 0.3424544930458069                                                             
+# 100%|██████████| 3/3 [02:27<00:00, 49.25s/trial, best loss: 0.5815421938896179]
+# Best: {'dropout_rate': 0.8, 'hidden_n0': 25.0, 'hidden_n1': 10.0, 'layers': 1.0, 'lookback': 10.0, 'neurons_n0': 25.0, 'neurons_n1': 40.0, 'td_neurons': 5.0, 'weights_0': 5.0, 'weights_2': 4.0, 'weights_3': 5.0}
+# max_evals: 3
+# Out[81]: 3
 
-def iter_trials_vrnn(seed):
-    g = 0
-    while g < 1000:
-        g = run_trials(filename = 'vrnn' + '_' +space_vrnn['mtype'] +'_' + space_vrnn['covariate'] + '_'+str(seed)+'.pkl',objective =hyperoptimizer_vrnn, space =space_vrnn, rstate =seed, initial=25, trials_step=3)
-    
-def iter_trials_ende(seed):
-    g = 0
-    while g < 1000:
-        g = run_trials(filename = 'ende' + '_' +space_ende['mtype'] +'_' + space_ende['covariate'] + '_'+str(seed)+'.pkl',objective =hyperoptimizer_ende, space =space_ende, rstate =seed, initial=25, trials_step=3)
+# run using iteration function to run n number of trials
+current = time.perf_counter() # keep track of time
+iter_trials(space = space_vrnn, 
+            seed = 321, 
+            steps = 3, 
+            n = 30)
+print('Took ' + str(round((time.perf_counter()-current)/60,2)) + ' mins')
+
+# Output:
+# Best validation for trial:                                                       
+# 0.42851927876472473                                                              
+# 100%|██████████| 31/31 [02:06<00:00, 42.14s/trial, best loss: 0.5679725408554077]
+# Best: {'dropout_rate': 0.4, 'hidden_n0': 30.0, 'hidden_n1': 50.0, 'layers': 2.0, 'lookback': 13.0, 'neurons_n': 35.0, 'weights_0': 2.5, 'weights_2': 6.0, 'weights_3': 10.0}
+# max_evals: 31
+# Took 23.52 mins
+
 
 # ray.init(ignore_reinit_error=True, logging_level=logging.ERROR)
 # @ray.remote
@@ -733,99 +729,3 @@ current = time.perf_counter()
 iter_trials_ende(56924)
 print((time.perf_counter()-current)/3600)
 
-
-# test model construction wrapper, should generate same model architecture as prior model
-# specify parameters/hyperparameters
-# hidden neuron variables differ from prior parameter specification
-params = {'atype': 'VRNN',
-          'mtype': 'GRU',
-          'lookback': lookback, # also added lookback as parameter in dictionary
-          'hidden_layers': 1,
-          'neurons_n': 20,
-          'hidden_n0': 10,
-          'hidden_n1': 10,
-          'learning_rate': 0.001,
-          'dropout_rate': 0.3,               
-          'loss': False,
-          'epochs': 5,
-          'batch_size': 512,
-          'weights_0': 1,
-          'weights_1': 1,
-          'weights_2': 3,
-          'weights_3': 1}
-
-model = bmf.hyp_nest(params, features, targets)
-model.summary() # looks identical to prior model as expected
-# Model: "sequential_4"
-# _________________________________________________________________
-# Layer (type)                 Output Shape              Param #   
-# =================================================================
-# Masking (Masking)            (None, 5, 26)             0         
-# _________________________________________________________________
-# GRU (GRU)                    (None, 20)                2880      
-# _________________________________________________________________
-# dropout_8 (Dropout)          (None, 20)                0         
-# _________________________________________________________________
-# dense_4 (Dense)              (None, 10)                210       
-# _________________________________________________________________
-# dropout_9 (Dropout)          (None, 10)                0         
-# _________________________________________________________________
-# Output (Dense)               (None, 4)                 44        
-# =================================================================
-# Total params: 3,134
-# Trainable params: 3,134
-# Non-trainable params: 0
-# _________________________________________________________________
-
-
-# test model construction wrapper, should generate same model architecture as prior model
-# specify parameters/hyperparameters
-# hidden neuron variables differ from prior parameter specification
-# also added lookback and n_outputs parameters into dictionary
-params = {'atype': 'ENDE',
-          'mtype': 'GRU',
-          'lookback': lookback,
-          'n_outputs':n_output,
-          'hidden_layers': 1,
-          'neurons_n': 20,
-          'hidden_n0': 10,
-          'hidden_n1': 10,
-          'td_neurons': 5,
-          'learning_rate': 0.001,
-          'dropout_rate': 0.3,               
-          'loss': False,
-          'epochs': 100,
-          'batch_size': 512,
-          'weights_0': 1,
-          'weights_1': 1,
-          'weights_2': 3,
-          'weights_3': 1}
-
-model = model = bmf.hyp_nest(params, features, targets)
-model.summary() # looks identical to prior model as expected
-# Model: "sequential_4"
-# _________________________________________________________________
-# Layer (type)                 Output Shape              Param #   
-# =================================================================
-# Masking (Masking)            (None, 5, 26)             0         
-# _________________________________________________________________
-# GRU (GRU)                    (None, 20)                2880      
-# _________________________________________________________________
-# dropout_8 (Dropout)          (None, 20)                0         
-# _________________________________________________________________
-# dense_8 (Dense)             (None, 10)                210       
-# _________________________________________________________________
-# dropout_9 (Dropout)         (None, 10)                0         
-# _________________________________________________________________
-# repeat_vector_4 (RepeatVecto (None, 1, 10)             0         
-# _________________________________________________________________
-# gru_3 (GRU)                  (None, 1, 20)             1920      
-# _________________________________________________________________
-# time_distributed_8 (TimeDist (None, 1, 5)              105       
-# _________________________________________________________________
-# time_distributed_9 (TimeDist (None, 1, 4)              24        
-# =================================================================
-# Total params: 5,139
-# Trainable params: 5,139
-# Non-trainable params: 0
-# _________________________________________________________________
