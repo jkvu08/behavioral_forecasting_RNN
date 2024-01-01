@@ -119,8 +119,8 @@ def hyp_nest(params, features, targets):
                               lookback = params['lookback'], 
                               neurons_n=params['neurons_n'],
                               hidden_n=[params['hidden_n0'], params['hidden_n1']],
-                              lr_rate =params['learning_rate'],
-                              d_rate = params['dropout_rate'],
+                              learning_rate =params['learning_rate'],
+                              dropout_rate = params['dropout_rate'],
                               layers = params['hidden_layers'], 
                               mtype = params['mtype'], 
                               cat_loss = params['loss'])
@@ -132,8 +132,8 @@ def hyp_nest(params, features, targets):
                                neurons_n=params['neurons_n'],
                                hidden_n=[params['hidden_n0'], params['hidden_n1']],
                                td_neurons = params['td_neurons'], 
-                               lr_rate =params['learning_rate'],
-                               d_rate = params['dropout_rate'],
+                               learning_rate =params['learning_rate'],
+                               dropout_rate = params['dropout_rate'],
                                layers = params['hidden_layers'], 
                                mtype = params['mtype'],
                                cat_loss = params['loss'])
@@ -171,16 +171,16 @@ def hyperoptimizer_rnn(params):
     train, test = bmf.split_dataset(datasub, 2015) # split the data by year
     # format the training and testing data for the model
     train_X, train_y, train_dft = bmf.to_supervised(data = train.iloc[:,6:34], 
-                                                TID = train['TID'], 
-                                                window = 1, 
-                                                lookback = params['lookback'], 
-                                                n_output=params['n_outputs']) 
+                                                    TID = train['TID'], 
+                                                    window = 1, 
+                                                    lookback = params['lookback'], 
+                                                    n_output = params['n_outputs']) 
     # format testing data
     test_X, test_y, test_dft = bmf.to_supervised(data = test.iloc[:,6:34], 
-                                             TID = test['TID'],
-                                             window = 1, 
-                                             lookback = params['lookback'], 
-                                             n_output = params['n_outputs'])
+                                                 TID = test['TID'],
+                                                 window = 1, 
+                                                 lookback = params['lookback'], 
+                                                 n_output = params['n_outputs'])
     
     # if encoder-decode model and predict 1 timestep, reconfigure 2d y to 3d
     if params['atype'] == 'ENDE' and params['n_outputs'] == 1:
@@ -269,6 +269,34 @@ def run_trials(filename, objective, space, rstate, initial = 20, trials_step = 1
     joblib.dump(trials, filename) # save the trials object
     return max_trials
 
+
+def iter_trials(space, objective, seed, steps, n = 1000):
+    """
+    function to run hyperparameter optimization experiments    
+
+    Parameters
+    ----------
+    space : dict, parameter search space
+    objective : func, objective function
+    seed : int, seed 
+    steps : int, number of experiments to run before saving
+    n : int, number of experiments
+
+    Returns
+    -------
+    None.
+
+    """
+    g = 0 # initial counter
+    while g < n: # which number of experiments is less than maximum experiments
+    # run the experiment
+        g = run_trials(filename =  space['atype'] + '_' +space['mtype'] +'_' + space['predictor'] + '_' + str(seed) +'.pkl', # assign filename
+                       objective = objective, # assign objective function for hyperopt evaluation
+                       space = space, # search space
+                       rstate = seed, # random seed
+                       initial= 25, # number of experiments to run before first save
+                       trials_step = steps) # number of experiments to run thereafter before saving
+  
 ############################
 #### Model optimization ####
 ############################
@@ -322,7 +350,8 @@ ende_params = {'atype': 'ENDE',
               'lookback': 5,
               'n_outputs': 1,
               'hidden_layers': 1,
-              'neurons_n': 20,
+              'neurons_n0': 20,
+              'neurons_n1': 20,
               'hidden_n0': 10,
               'hidden_n1': 10,
               'td_neurons': 5,
@@ -482,22 +511,57 @@ ende_obj # view objective function output
 #  'val_f1': 0.42537400126457214,
 #  'val_acc': 0.8343235850334167}
 
-space_vrnn = {'covariate'              : 'full',
-              'drate'                  : hp.quniform('drate',0.1,0.9,0.1),
-              'neurons_n'              : scope.int(hp.quniform('neurons_n',5,50,5)),
-              'n_output'               : 1,
-              'learning_rate'          : 0.001,
-              'hidden_layers'          : scope.int(hp.choice('layers',[0,1])),
-              'hidden_n0'              : scope.int(hp.quniform('hidden_n0',5,50,5)),
+vrnn_params = {'atype': 'VRNN',
+              'mtype': 'GRU',
+              'iters': 1,
+              'lookback': 5, 
+              'n_outputs': 1,
+              'predictor':'full',
+              'hidden_layers': 1,
+              'neurons_n': 20,
+              'hidden_n0': 10,
+              'hidden_n1': 10,
+              'learning_rate': 0.001,
+              'dropout_rate': 0.3,               
+              'loss': False,
+              'epochs': 100,
+              'max_epochs': 100,
+              'patience': 30,
+              'batch_size': 512,
+              'weights_0': 1,
+              'weights_1': 1,
+              'weights_2': 3,
+              'weights_3': 1}
+
+# specify vanilla RNN parameter space using
+space_vrnn = {'atype'                  : 'VRNN',
+              'mtype'                  : 'GRU',
+              'iters'                  : 1,
               'lookback'               : scope.int(hp.quniform('lookback',1,23,1)),
+              'n_outputs'              : 1,
+              'predictor'              : 'behavior',
+              'hidden_layers'          : scope.int(hp.choice('layers',[0,1])),
+              'neurons_n'              : scope.int(hp.quniform('neurons_n',5,50,5)),
+              'hidden_n0'              : scope.int(hp.quniform('hidden_n0',5,50,5)),
+              'hidden_n1'              : scope.int(hp.quniform('hidden_n1',5,50,5)),
+              'learning_rate'          : 0.001,
+              'dropout_rate'           : hp.quniform('drate',0.1,0.9,0.1),
+              'loss'                   : False,
               'epochs'                 : 200,
+              'max_epochs'             : 200,
+              'patience'               : 30,
               'batch_size'             : 512,
               'weights_0'              : hp.quniform('weights_0',1,5,0.5),
               'weights_1'              : 1,
               'weights_2'              : scope.int(hp.quniform('weights_2',1,25,1)),
-              'weights_3'              : scope.int(hp.quniform('weights_3',1,10,1)),
-              'mtype'                  : 'LSTM'
+              'weights_3'              : scope.int(hp.quniform('weights_3',1,10,1))
               }
+
+# run hyperoptimization trial
+def iter_trials_vrnn(seed):
+    g = 0
+    while g < 1000:
+        g = run_trials(filename = 'vrnn' + '_' +space_vrnn['mtype'] +'_' + space_vrnn['covariate'] + '_'+str(seed)+'.pkl',objective =hyperoptimizer_vrnn, space =space_vrnn, rstate =seed, initial=25, trials_step=3)
 
 space_vrnn = {'covariate'              : 'full',
               'drate'                  : hp.quniform('drate',0.1,0.5,0.1),
@@ -557,65 +621,6 @@ space_ende = {'covariate'              : 'behavior',
 #           'weights_3': 1,
 #           'mtype': 'GRU'}
 
-# train, test = split_dataset(datasub, 2015) # split the data
-# train_X, train_y, train_dft = to_supervised(data = train.iloc[:,7:33], TID = train['TID'], window = 1, lookback = params['lookback'], n_output=params['n_output']) # format training data
-# test_X, test_y, test_dft = to_supervised(data = test.iloc[:,7:33], TID = test['TID'],window = params['n_output'], lookback = params['lookback'], n_output = params['n_output']) # format testing data
-
-
-# model = hyp_ende_nest(params,26,4)
-# #weights = dict(zip([0,1,2,3], [params['weights_0'], params['weights_1'], params['weights_2'], params['weights_3']]))
-       
-# start_time = time.perf_counter()
-# history3 = model.fit(train_X, train_y, 
-#                             epochs = 200, 
-#                             batch_size = params['batch_size'],
-#                             verbose = 2,
-#                             shuffle=False,
-#                             validation_data = (test_X, test_y),
-#                             sample_weight = sample_weights)
-#                             #class_weight = weights)
-#                           #  callbacks = EarlyStopping(patience= 30, monitor='val_loss', mode = 'min', restore_best_weights=True, verbose=0))
-# print((time.perf_counter()-start_time)/60)
-
-# plot_fun(history3)
-
-# def plot_fun(history):
-#     xlength = len(history.history['val_loss'])
-#     fig, ax = pyplot.subplots(4,2,sharex = True, sharey = False, figsize = (8,8))
-#     pyplot.subplot(4,2,1)
-#     pyplot.plot(range(xlength), history.history['loss'],label ='train')
-#     pyplot.plot(range(xlength), history.history['val_loss'], label ='valid')
-#     pyplot.legend(['train', 'valid'])
-#     pyplot.title('loss')
-#     pyplot.subplot(4,2,2)
-#     pyplot.plot(range(xlength), history.history['f1'], label ='train')
-#     pyplot.plot(range(xlength), history.history['val_f1'], label ='valid')
-#     pyplot.title('f1 score')
-#  #   pyplot.subplot(4,2,3)
-#   #  pyplot.plot(range(xlength), history.history['categorical_accuracy'], label ='train')
-#    # pyplot.plot(range(xlength), history.history['val_categorical_accuracy'], label ='valid')
-#     #pyplot.title('categorical accuracy')
-#     pyplot.subplot(4,2,4)
-#     pyplot.plot(range(xlength), history.history['Accuracy'], label ='train')
-#     pyplot.plot(range(xlength), history.history['val_Accuracy'], label ='valid')
-#     pyplot.title('accuracy')
-#     pyplot.subplot(4,2,5)
-#     pyplot.plot(range(xlength), history.history['precision'], label ='train')
-#     pyplot.plot(range(xlength), history.history['val_precision'], label ='valid')
-#     pyplot.title('precision')
-#     pyplot.subplot(4,2,6)
-#     pyplot.plot(range(xlength), history.history['recall'], label ='train')
-#     pyplot.plot(range(xlength), history.history['val_recall'], label ='valid')
-#     pyplot.title('recall')
-#     pyplot.subplot(4,2,7)
-#     pyplot.plot(range(xlength), history.history['ROC'], label ='train')
-#     pyplot.plot(range(xlength), history.history['val_ROC'], label ='valid')
-#     pyplot.title('ROC')
-#     pyplot.subplot(4,2,8)
-#     pyplot.plot(range(xlength), history.history['PR'], label ='train')
-#     pyplot.plot(range(xlength), history.history['val_PR'], label ='valid')
-#     pyplot.title('PR')
-#     fig.tight_layout()
 
 def iter_trials_vrnn(seed):
     g = 0

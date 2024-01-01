@@ -247,7 +247,7 @@ def f1_loss(y_true, y_pred):
                   f1) # else set to f1 score
     return 1 - K.mean(f1) # calculate loss f1
 
-def build_rnn(features, targets, lookback, neurons_n=10, hidden_n=[10], lr_rate=0.001, d_rate = 0.2, layers = 1, mtype = 'LSTM', cat_loss = True):
+def build_rnn(features, targets, lookback, neurons_n=10, hidden_n=[10], learning_rate=0.001, dropout_rate = 0.2, layers = 1, mtype = 'LSTM', cat_loss = True):
     """
     Vanilla LSTM for single timestep output prediction (one-to-one or many-to-one)
     
@@ -258,8 +258,8 @@ def build_rnn(features, targets, lookback, neurons_n=10, hidden_n=[10], lr_rate=
     lookback: int, number of timesteps prior to use for prediction 
     neurons_n : int,number of neurons, (the default is 10).
     hidden_n : list lenght of layers with number of hidden neurons, (the default is 10).
-    lr_rate : float, learning rate (the default is 0.001).
-    d_rate : float, drop out rate (the default is 0.2).
+    learning_rate : float, learning rate (the default is 0.001).
+    dropout_rate : float, drop out rate (the default is 0.2).
     layers: 1 
     mtype: string, model type (LSTM or GRU only, default is LSTM)
     cat_loss: boolean, loss type of True categorical crossentrophy loss is used, if False f1 loss is used. The default is True, 
@@ -287,13 +287,13 @@ def build_rnn(features, targets, lookback, neurons_n=10, hidden_n=[10], lr_rate=
                       input_shape = (lookback,features), 
                       name = 'GRU')) # set the RNN type
     # add drop out
-    model.add(Dropout(rate= d_rate)) 
+    model.add(Dropout(rate= dropout_rate)) 
     for i in range(layers): # for each hidden layer
         # add dense layer
         model.add(Dense(units = hidden_n[i], 
                         activation = 'relu', 
                         kernel_initializer =  'he_uniform')) 
-        model.add(Dropout(rate = d_rate)) # add dropout
+        model.add(Dropout(rate = dropout_rate)) # add dropout
     # add output layer
     model.add(Dense(units = targets, 
                     activation = "softmax", 
@@ -301,15 +301,15 @@ def build_rnn(features, targets, lookback, neurons_n=10, hidden_n=[10], lr_rate=
     # compile model 
     if cat_loss == True: # if true
         model.compile(loss = 'categorical_crossentropy', # use categorical crossentropy loss
-                      optimizer = Adam(learning_rate = lr_rate), # set learning rate 
+                      optimizer = Adam(learning_rate = learning_rate), # set learning rate 
                       metrics = [f1, 'accuracy']) # monitor metrics
     else: 
         model.compile(loss = f1_loss, # otherwise use f1 loss 
-                      optimizer = Adam(learning_rate = lr_rate), # set learning rate 
+                      optimizer = Adam(learning_rate = learning_rate), # set learning rate 
                       metrics = [f1, 'accuracy']) # monitor metrics
     return model 
 
-def build_ende(features, targets, lookback, n_outputs, neurons_n = 10, hidden_n = [10], td_neurons = 10, lr_rate  = 0.001, d_rate = 0.2, layers = 1, mtype = 'LSTM', cat_loss = True):
+def build_ende(features, targets, lookback, n_outputs, neurons_n0 = 10, neurons_n1 = 10, hidden_n = [10], td_neurons = 10, learning_rate  = 0.001, dropout_rate = 0.2, layers = 1, mtype = 'LSTM', cat_loss = True):
     """
     Single encoder-decoder model
 
@@ -319,11 +319,12 @@ def build_ende(features, targets, lookback, n_outputs, neurons_n = 10, hidden_n 
     targets: int, number of targets to predict
     n_outputs: int, number of timesteps to predict
     lookback: int, number of timesteps prior to use for prediction
-    neurons_n : number of neurons. The default is 10.
+    neurons_n0 : number of neurons for first RNN layer. The default is 10.
+    neurons_n1 : number of neurons for second RNN layer. The default is 10.  
     hidden_n : list of number of hidden neurons. The default is 10.
     td_neurons : number of timde distributed neurons. The default is 10.
-    lr_rate : Learning rate. The default is 0.001.
-    d_rate : dropout rate. The default is 0.2.
+    learning_rate : Learning rate. The default is 0.001.
+    dropout_rate : dropout rate. The default is 0.2.
     layers : number of layers The default is 1.
     mtype : model type, should be LSTM or GRU. The default is 'LSTM'.
     cat_loss: boolean, default is True, categorical cross-entrophy loss is used, if False f1 loss is used
@@ -342,31 +343,31 @@ def build_ende(features, targets, lookback, n_outputs, neurons_n = 10, hidden_n 
     # set RNN type
     if mtype == 'LSTM': # if the model is an LSTM
         # add LSTM layer
-        model.add(LSTM(units =neurons_n, 
+        model.add(LSTM(units =neurons_n0, 
                        input_shape = (lookback,features), 
                        name = 'LSTM')) 
     else: # otherwise set the GRU as the model type
         # add GRU layer
-        model.add(GRU(units = neurons_n, 
+        model.add(GRU(units = neurons_n0, 
                       input_shape = (lookback,features), 
                       name = 'GRU'))
     # add a dropout layer
-    model.add(Dropout(rate = d_rate))
+    model.add(Dropout(rate = dropout_rate))
     for i in range(layers): # for each hidden layer  
         # add a dense layer
         model.add(Dense(units = hidden_n[i], 
                         activation = 'relu', 
                         kernel_initializer =  'he_uniform')) 
         # add a dropout layer
-        model.add(Dropout(rate = d_rate))
+        model.add(Dropout(rate = dropout_rate))
     model.add(RepeatVector(n_outputs)) # repeats encoder context for each prediction timestep
     # add approriate RNN type after repeat vector
     if mtype == 'LSTM': 
-        model.add(LSTM(units = neurons_n, 
+        model.add(LSTM(units = neurons_n1, 
                        input_shape = (lookback,features), 
                        return_sequences=True)) 
     else: # else set the layer to GRU
-        model.add(GRU(units = neurons_n, 
+        model.add(GRU(units = neurons_n1, 
                       input_shape = (lookback,features),
                       return_sequences = True)) 
     # make sequential predictions, applies decoder fully connected layer to each prediction timestep
@@ -377,12 +378,12 @@ def build_ende(features, targets, lookback, n_outputs, neurons_n = 10, hidden_n 
     if cat_loss == True: # if true
         # compile model 
         model.compile(loss = 'categorical_crossentropy', # use categorical crossentropy loss
-                      optimizer = Adam(learning_rate = lr_rate), # set learning rate 
+                      optimizer = Adam(learning_rate = learning_rate), # set learning rate 
                       metrics = [f1,'accuracy'], # monitor metrics
                       sample_weight_mode = 'temporal') # add sample weights, since class weights are not supported in 3D
     else: 
         model.compile(loss = f1_loss, # otherwise use f1 loss 
-                      optimizer = Adam(learning_rate = lr_rate), # set learning rate 
+                      optimizer = Adam(learning_rate = learning_rate), # set learning rate 
                       metrics = [f1,'accuracy'], # monitor metrics
                       sample_weight_mode = 'temporal') # add sample weights, since class weights are not supported in 3D
     return model
