@@ -60,6 +60,7 @@ path = "C:\\Users\\Jannet\\Documents\\Dissertation\\codes\\behavioral_forecastin
 
 # import packages from file
 import behavior_model_func as bmf
+import hyperopt_vis_func as hvf
 
 # import training datafiles
 datasub =  read_csv('kian_trainset_focal.csv', 
@@ -161,12 +162,8 @@ def hyperoptimizer_rnn(params):
         {loss: loss value to optimize through minimization (i.e., validation loss)
          status: default value for hyperopt
          params: the hyperparameter values being tested
-         train_loss: training loss
-         train_f1: training f1 score
-         train_acc: training accuracy
-         val_loss: validation loss
-         val_f1: validation f1 score
-         val_acc: validation accuracy}
+         eval_iters: model evaluation results for each iteration (i.e., training and validation loss, f1 score and accuracy),
+         avg_eval: average model evaluation across iterations (i.e., training and validation loss, f1 score and accuracy)}
     """
     targets = 4 # set number of targets (4 behavior classes)
     train, test = bmf.split_dataset(datasub, 2015) # split the data by year
@@ -210,25 +207,24 @@ def hyperoptimizer_rnn(params):
         raise Exception ('invalid feature selection')   
     model = hyp_nest(params, features, targets) # build model
     # fit model and extract evaluation epochs, loss and metrics
-    _, avg_eval = bmf.eval_iter(model, 
-                                params, 
-                                train_X, 
-                                train_y, 
-                                test_X, 
-                                test_y, 
-                                patience = params['patience'], 
-                                max_epochs = params['max_epochs'], 
-                                atype = params['atype'], 
-                                n = params['iters']) 
-    # reassign epoch based on early stopping
-    params['epochs'] = int(avg_eval['epochs'])
-    # convert evaluation loss and metrics to dictionary
-    avg_dict = avg_eval[1:].to_dict() # don't need average epochs ran (so get rid of first entry)
+    eval_df, avg_eval = bmf.eval_iter(model, 
+                                      params, 
+                                      train_X, 
+                                      train_y, 
+                                      test_X, 
+                                      test_y, 
+                                      patience = params['patience'], 
+                                      max_epochs = params['max_epochs'], 
+                                      atype = params['atype'], 
+                                      n = params['iters']) 
+    
     obj_dict = {'loss': avg_eval['val_loss'], # use validation loss as loss objective
                 'status': STATUS_OK,  # set as default for hyperopt
-                'params': params} # output parameters
-    obj_dict.update(avg_dict)
-    print('Best validation for trial:', obj_dict['val_f1']) # print the validation score
+                'params': params, # output parameters
+                'eval_iters': eval_df, # epoch, loss and evaluation for each iteration 
+                'avg_eval': avg_eval} # average epoch, loss and evaluation across iterations
+
+    print('Best validation for trial:', avg_eval['val_f1']) # print the validation score
     return obj_dict
 
 def run_trials(filename, objective, space, rstate, initial = 20, trials_step = 1):
@@ -270,7 +266,7 @@ def run_trials(filename, objective, space, rstate, initial = 20, trials_step = 1
     joblib.dump(trials, filename) # save the trials object
     return max_trials
 
-def iter_trials(space, seed, steps, n = 1000):
+def iter_trials(space, path, seed, steps, n = 1000):
     """
     function to run hyperparameter optimization experiments    
 
@@ -290,16 +286,16 @@ def iter_trials(space, seed, steps, n = 1000):
     g = 0 # initial counter
     while g < n: # which number of experiments is less than maximum experiments
     # run the experiment
-        g = run_trials(filename =  space['atype'] + '_' +space['mtype'] +'_' + space['predictor'] + '_' + str(seed) +'.pkl', # assign filename
+        g = run_trials(filename =  path + space['atype'] + '_' +space['mtype'] +'_' + space['predictor'] + '_' + str(seed) +'.pkl', # assign filename
                        objective = hyperoptimizer_rnn, # assign objective function for hyperopt evaluation
                        space = space, # search space
                        rstate = seed, # random seed
                        initial= 25, # number of experiments to run before first save, want at least 20 since hyperopt uses random parameters within search space for the first 20 experiments
                        trials_step = steps) # number of experiments to run thereafter before saving
   
-############################
-#### Model optimization ####
-############################
+####################
+#### Model runs ####
+####################
 # test model construction wrapper for vanilla RNN
 # specify parameters/hyperparameters
 vrnn_params = {'atype': 'VRNN',
@@ -312,7 +308,7 @@ vrnn_params = {'atype': 'VRNN',
               'learning_rate': 0.001,
               'dropout_rate': 0.3,               
               'loss': False,
-              'epochs': 5,
+              'max_epochs': 100,
               'batch_size': 512,
               'weights_0': 1,
               'weights_1': 1,
@@ -358,7 +354,7 @@ ende_params = {'atype': 'ENDE',
               'learning_rate': 0.001,
               'dropout_rate': 0.3,               
               'loss': False,
-              'epochs': 100,
+              'max_epochs': 100,
               'batch_size': 512,
               'weights_0': 1,
               'weights_1': 1,
@@ -398,7 +394,7 @@ model.summary() # looks identical to prior model as expected
 # specify set parameters/hyperparameters for vanilla RNN
 vrnn_params = {'atype': 'VRNN',
               'mtype': 'GRU',
-              'iters': 1,
+              'iters': 5,
               'lookback': 5, 
               'n_outputs': 1,
               'predictor':'full',
@@ -409,9 +405,8 @@ vrnn_params = {'atype': 'VRNN',
               'learning_rate': 0.001,
               'dropout_rate': 0.3,               
               'loss': False,
-              'epochs': 100,
-              'max_epochs': 100,
-              'patience': 30,
+              'max_epochs': 10,
+              'patience': 5,
               'batch_size': 512,
               'weights_0': 1,
               'weights_1': 1,
@@ -419,14 +414,14 @@ vrnn_params = {'atype': 'VRNN',
               'weights_3': 1}
 
 vrnn_obj = hyperoptimizer_rnn(vrnn_params) # run objective function for vanilla RNN
-# Best validation for trial: 0.42486771941185
+# Best validation for trial: 0.4163888990879059
 
 vrnn_obj # view objective function output 
-# {'loss': 0.5751951932907104,
+# {'loss': 0.5822282552719116,
 #  'status': 'ok',
 #  'params': {'atype': 'VRNN',
 #   'mtype': 'GRU',
-#   'iters': 1,
+#   'iters': 5,
 #   'lookback': 5,
 #   'n_outputs': 1,
 #   'predictor': 'full',
@@ -437,39 +432,46 @@ vrnn_obj # view objective function output
 #   'learning_rate': 0.001,
 #   'dropout_rate': 0.3,
 #   'loss': False,
-#   'epochs': 49.0,
-#   'max_epochs': 100,
-#   'patience': 30,
+#   'max_epochs': 10,
+#   'patience': 5,
 #   'batch_size': 512,
 #   'weights_0': 1,
 #   'weights_1': 1,
 #   'weights_2': 3,
 #   'weights_3': 1},
-#  'train_loss': 0.5988207459449768,
-#  'train_f1': 0.4180199205875397,
-#  'train_acc': 0.7597236037254333,
-#  'val_loss': 0.5751951932907104,
-#  'val_f1': 0.42486771941185,
-#  'val_acc': 0.8361517190933228}
+#   'eval_iters':      epochs  iter  train_loss  train_f1  train_acc  val_loss    val_f1    val_acc
+#               0      10      0     0.616888    0.399122  0.766169   0.587300    0.411824  0.839637
+#               1      10      1     0.610635    0.401822  0.768684   0.587308    0.409688  0.840665
+#               2      10      2     0.608055    0.402600  0.761677   0.584296    0.410514  0.841122
+#               3      10      3     0.602933    0.414899  0.759309   0.576787    0.424864  0.837294
+#               4      10      4     0.600705    0.418485  0.759479   0.575450    0.425055  0.835980,
+#  'avg_eval': epochs        10.000000
+#              train_loss     0.607843
+#              train_f1       0.407386
+#              train_acc      0.763064
+#              val_loss       0.582228
+#              val_f1         0.416389
+#              val_acc        0.838940
+#              dtype: float64}
 
 # specify parameters/hyperparameters for encoder decoder
 ende_params = {'atype': 'ENDE',
               'mtype': 'GRU',
-              'iters': 1,
+              'iters': 5,
               'lookback': 5, 
               'n_outputs': 1,
               'predictor':'full',
               'hidden_layers': 1,
-              'neurons_n': 20,
+              'neurons_n0': 20,
+              'neurons_n1': 20,
               'hidden_n0': 10,
               'hidden_n1': 10,
               'td_neurons': 5,
               'learning_rate': 0.001,
               'dropout_rate': 0.3,               
               'loss': False,
-              'epochs': 5,
-              'max_epochs': 100,
-              'patience': 30,
+              'max_epochs': 10,
+              'patience': 5,
               'batch_size': 512,
               'weights_0': 1,
               'weights_1': 1,
@@ -477,39 +479,47 @@ ende_params = {'atype': 'ENDE',
               'weights_3': 1}
 
 ende_obj = hyperoptimizer_rnn(ende_params) # run objective function for encoder decoder 
-# Best validation for trial: 0.42537400126457214
+# Best validation for trial: 0.4121915400028229
 
 ende_obj # view objective function output
-# {'loss': 0.573643684387207,
+# {'loss': 0.5839401364326477,
 #  'status': 'ok',
 #  'params': {'atype': 'ENDE',
 #   'mtype': 'GRU',
-#   'iters': 1,
+#   'iters': 5,
 #   'lookback': 5,
 #   'n_outputs': 1,
 #   'predictor': 'full',
 #   'hidden_layers': 1,
-#   'neurons_n': 20,
+#   'neurons_n0': 20,
+#   'neurons_n1': 20,
 #   'hidden_n0': 10,
 #   'hidden_n1': 10,
 #   'td_neurons': 5,
 #   'learning_rate': 0.001,
 #   'dropout_rate': 0.3,
 #   'loss': False,
-#   'epochs': 68.0,
-#   'max_epochs': 100,
-#   'patience': 30,
+#   'max_epochs': 10,
+#   'patience': 5,
 #   'batch_size': 512,
 #   'weights_0': 1,
 #   'weights_1': 1,
 #   'weights_2': 3,
 #   'weights_3': 1},
-#  'train_loss': 0.59934401512146,
-#  'train_f1': 0.41581910848617554,
-#  'train_acc': 0.7629953622817993,
-#  'val_loss': 0.573643684387207,
-#  'val_f1': 0.42537400126457214,
-#  'val_acc': 0.8343235850334167}
+#  'eval_iters':    epochs  iter  train_loss  train_f1  train_acc  val_loss    val_f1   val_acc
+#                0      10     0    0.614793  0.401715   0.777376  0.586817  0.412148  0.845293
+#                1      10     1    0.610315  0.404417   0.776888  0.586387  0.411323  0.843236
+#                2      10     2    0.608774  0.404630   0.775008  0.585247  0.413813  0.840951
+#                3      10     3    0.607342  0.409331   0.775814  0.583371  0.414612  0.844093
+#                4      10     4    0.604604  0.412848   0.773299  0.577879  0.421203  0.840894,
+#  'avg_eval': epochs        10.000000
+#              train_loss     0.609165
+#              train_f1       0.406588
+#              train_acc      0.775677
+#              val_loss       0.583940
+#              val_f1         0.414620
+#              val_acc        0.842893
+#              dtype: float64}
 
 # specify vanilla RNN parameter space
 space_vrnn = {'atype'                  : 'VRNN',
@@ -525,7 +535,6 @@ space_vrnn = {'atype'                  : 'VRNN',
               'learning_rate'          : 0.001,
               'dropout_rate'           : hp.quniform('dropout_rate',0.1,0.9,0.1),
               'loss'                   : False,
-              'epochs'                 : 50,
               'max_epochs'             : 50,
               'patience'               : 30,
               'batch_size'             : 512,
@@ -541,17 +550,16 @@ run_trials(filename =  path + space_vrnn['atype'] + '_' + space_vrnn['mtype'] +'
                        space = space_vrnn, # search space
                        rstate = seed, # random seed
                        initial= 3, # number of experiments to run before first save
-                       trials_step = 2) # number of experiments to run thereafter before saving
+                       trials_step = 5) # number of experiments to run thereafter before saving
 
-# output 
+# output of 3 hyperopt experiments
 # validation for trial:
 # 0.4292759597301483                                                             
 # 100%|██████████| 3/3 [01:56<00:00, 38.90s/trial, best loss: 0.5712067484855652]
 # Best: {'dropout_rate': 0.4, 'hidden_n0': 45.0, 'hidden_n1': 50.0, 'layers': 1.0, 'lookback': 11.0, 'neurons_n': 35.0, 'weights_0': 3.0, 'weights_2': 22.0, 'weights_3': 1.0}
-# max_evals: 3
-# ran 3 since it was the initial run. 
+# max_evals: 3 
 
-# run again to see if model is picking up from before
+# run again to make sure model is picking up from before
 run_trials(filename =  path + space_vrnn['atype'] + '_' + space_vrnn['mtype'] +'_' + space_vrnn['predictor'] + '_' + str(seed) +'.pkl', # assign filename
                        objective = hyperoptimizer_rnn, # assign objective function for hyperopt evaluation
                        space = space_vrnn, # search space
@@ -567,7 +575,64 @@ run_trials(filename =  path + space_vrnn['atype'] + '_' + space_vrnn['mtype'] +'
 # max_evals: 5
 # see that the runs continued from prior, resulting in 5 total experiments saved
 
-### NEED TO EVALUATE HYPEROPT MODELS VISUALS
+# examine hyperopt experiment results
+# load the hyperopt experiments
+trials = joblib.load(path + 'VRNN_GRU_behavior_123.pkl')
+# convert trial results into dataframe
+trial_df = hvf.trials_to_df(trials)
+
+trial_df.columns # examine dataframe columns to get sense of data structure
+# Index(['atype', 'batch_size', 'dropout_rate', 'hidden_layers', 'hidden_n0',
+#        'hidden_n1', 'iters', 'learning_rate', 'lookback', 'loss', 'max_epochs',
+#        'mtype', 'n_outputs', 'neurons_n', 'patience', 'predictor', 'weights_0',
+#        'weights_1', 'weights_2', 'weights_3', 'epochs', 'train_loss',
+#        'train_f1', 'train_acc', 'val_loss', 'val_f1', 'val_acc'],
+#       dtype='object')
+
+# examine the results of the last run of the hyperopt experiments  
+# atype                VRNN
+# batch_size            512
+# dropout_rate          0.7
+# hidden_layers           0
+# hidden_n0               5
+# hidden_n1              40
+# iters                   1
+# learning_rate       0.001
+# lookback               19
+# loss                False
+# max_epochs             50
+# mtype                 GRU
+# n_outputs               1
+# neurons_n              30
+# patience               30
+# predictor        behavior
+# weights_0             5.0
+# weights_1               1
+# weights_2              12
+# weights_3               1
+# epochs               50.0
+# train_loss       0.896169
+# train_f1         0.434498
+# train_acc        0.793011
+# val_loss         0.585248
+# val_f1            0.42036
+# val_acc          0.865653
+# Name: 4, dtype: object
+
+# visualize experiment results sequentially
+# list of metrics to visualize
+hyp_metrics = ['train_loss','val_loss',
+               'train_f1','val_acc',
+               'train_f1','val_acc',
+               'epochs','lookback','dropout_rate', 'neurons_n',
+               'hidden_layers','hidden_n0','hidden_n1', 
+               'weights_0','weights_2','weights_3']
+
+progress_fig = hvf.hyperopt_progress(trial_df, hyp_metrics)
+
+
+
+
 
 # specify encoder-decoder RNN parameter space
 space_ende = {'atype'                  : 'ENDE',
@@ -585,7 +650,6 @@ space_ende = {'atype'                  : 'ENDE',
               'learning_rate'          : 0.001,
               'dropout_rate'           : hp.quniform('dropout_rate',0.1,0.9,0.1),
               'loss'                   : False,
-              'epochs'                 : 50,
               'max_epochs'             : 50,
               'patience'               : 30,
               'batch_size'             : 512,
@@ -614,10 +678,20 @@ run_trials(filename =  path + space_ende['atype'] + '_' + space_ende['mtype'] +'
 # run using iteration function to run n number of trials
 current = time.perf_counter() # keep track of time
 iter_trials(space = space_vrnn, 
+            path = path,
+            seed = 123, 
+            steps = 3, 
+            n = 30)
+print('Took ' + str(round((time.perf_counter()-current)/60,2)) + ' mins')
+
+current = time.perf_counter() # keep track of time
+iter_trials(space = space_vrnn, 
+            path = path,
             seed = 321, 
             steps = 3, 
             n = 30)
 print('Took ' + str(round((time.perf_counter()-current)/60,2)) + ' mins')
+
 
 # Output:
 # Best validation for trial:                                                       
@@ -626,106 +700,3 @@ print('Took ' + str(round((time.perf_counter()-current)/60,2)) + ' mins')
 # Best: {'dropout_rate': 0.4, 'hidden_n0': 30.0, 'hidden_n1': 50.0, 'layers': 2.0, 'lookback': 13.0, 'neurons_n': 35.0, 'weights_0': 2.5, 'weights_2': 6.0, 'weights_3': 10.0}
 # max_evals: 31
 # Took 23.52 mins
-
-
-# ray.init(ignore_reinit_error=True, logging_level=logging.ERROR)
-# @ray.remote
-# class Simulator(object):
-#     def __init__(self,seed):
-#         import tensorflow as tf
-#         import keras
-#         from tensorflow.keras.layers import Dense, Dropout, LSTM, Masking, GRU, Conv1D, Activation, RepeatVector, TimeDistributed, Flatten, MaxPooling1D, ConvLSTM2D
-#         #from tensorflow.keras.preprocessing import sequence
-#         from tensorflow.keras.optimizers import Adam
-#         from tensorflow.keras.models import Sequential, Model
-#         from tensorflow_addons.metrics import F1Score
-#         #from tensorflow.keras.utils import to_categorical
-#         # import CategoricalAccuracy, CategoricalCrossentropy
-#         #from tensorflow.compat.v1.keras.layers import mean_per_class_accuracy
-#         from tensorflow.keras.wrappers.scikit_learn import KerasClassifier
-#         from tensorflow.keras.callbacks import EarlyStopping
-#         from keras.callbacks import Callback
-#         import keras.backend as K
-#         from tensorflow.compat.v1 import ConfigProto, InteractiveSession, Session
-
-#         # num_CPU = 1
-#         # num_cores = 7
-#         # config = ConfigProto(intra_op_parallelism_threads = num_cores,
-#         #                       inter_op_parallelism_threads = num_cores,
-#         #                       device_count={'CPU':num_CPU})
-        
-#         gpus = tf.config.experimental.list_physical_devices('GPU')
-#         for gpu in gpus:
-#             tf.config.experimental.set_memory_growth(gpu, True)
-    
-#         # gpu_options = tf.compat.v1.GPUOptions(per_process_gpu_memory_fraction=0.3,allow_growth=True) 
-#         # config = ConfigProto(gpu_options)
-#         # self.sess = Session(config=config)
-#         self.seed = seed
-
-#     def iter_trials_vrnn(self):
-#         g = 0
-#         while g < 1000:
-#             g = run_trials(filename = 'vanilla_rnn_vv_trials_seed'+str(self.seed)+'.pkl',objective =hyperoptimizer_vrnn, space =space_vrnn, rstate =self.seed, initial=25, trials_step=2)
-#        # self.sess.close()
-        
-#     def iter_trials_ende(self):
-#         g = 0
-#         while g < 1000:
-#             g = run_trials(filename = 'ende_vv_trials_seed'+str(self.seed)+'.pkl',objective =hyperoptimizer_ende, space =space_ende, rstate =self.seed, initial=25, trials_step=3)
-    
-#     def iter_trials_vbonly(self):
-#         g = 0
-#         while g < 1000:
-#             g = run_trials(filename = 'vrnn_bonly_vv_trials_seed'+str(self.seed)+'.pkl',objective =hyperoptimizer_vrnn_bonly, space =space_bonly, rstate =self.seed, initial=25, trials_step=3)
-
-# start = time.perf_counter()
-# simulators = [Simulator.remote(a) for a in [123,619,713]]
-# results = ray.get([s.iter_trials_vrnn.remote() for s in simulators])
-# finish = time.perf_counter()
-# print('Took '+str((finish-start)/(3600)) + 'hours')
-
-
-# 144,302,529
-# # load up trials
-# ende20 = joblib.load("ende_vv_trials_seed20.pkl")
-# ende51 = joblib.load("ende_vv_trials_seed51.pkl")
-# ende90 = joblib.load("ende_vv_trials_seed90.pkl")
-
-# vrnn20 = joblib.load("vanilla_rnn_vv_trials_seed20.pkl")
-# vrnn16 = joblib.load("vanilla_rnn_vv_trials_seed16.pkl")
-# vrnn06 = joblib.load("vanilla_rnn_vv_trials_seed6.pkl")
-
-# seeds = random.sample(range(100000),3)
-
-
-# current = time.perf_counter()
-# run_trials(filename = 'ende' + '_' +space_ende['mtype'] +'_' + space_ende['covariate'] + '_'+str(114)+'.pkl',objective =hyperoptimizer_ende, space =space_ende, rstate =114, initial=2, trials_step=2)
-# #run_trials(filename = 'vrnn' + space_vrnn['mtype'] +'_' + space_vrnn['covariate'] + '_'+str(seeds[0])+'.pkl',objective =hyperoptimizer_vrnn, space =space_vrnn, rstate =seeds[0], initial=2, trials_step=2)
-# print((time.perf_counter()-current)/60)
-
-# run_trials(filename = 'vrnn' + space_vrnn['mtype'] +'_' + space_vrnn['covariate'] + '_'+str(seeds[1])+'.pkl',objective =hyperoptimizer_vrnn, space =space_vrnn, rstate =seeds[1], initial=25, trials_step=2)
-# run_trials(filename = 'vrnn' + space_vrnn['mtype'] +'_' + space_vrnn['covariate'] + '_'+str(seeds[2])+'.pkl',objective =hyperoptimizer_vrnn, space =space_vrnn, rstate =seeds[2], initial=25, trials_step=2)
-
-# run_trials(filename = 'vanilla_rnn_vv_trials_seed'+str(312)+'.pkl',objective =hyperoptimizer_vrnn, space =space_vrnn, rstate =312, initial=2, trials_step=2)
-# run_trials(filename = 'vanilla_rnn_vv_trials_seed'+str(223)+'.pkl',objective =hyperoptimizer_vrnn, space =space_vrnn, rstate =223, initial=25, trials_step=2)
-# run_trials(filename = 'vanilla_rnn_vv_trials_seed'+str(969)+'.pkl',objective =hyperoptimizer_vrnn, space =space_vrnn, rstate =969, initial=25, trials_step=2)
-
-current = time.perf_counter()
-iter_trials_vrnn(random.sample(range(100000),1)[0])
-print((time.perf_counter()-current)/60)
-
-current = time.perf_counter()
-iter_trials_ende(random.sample(range(100000),1)[0])
-print((time.perf_counter()-current)/3600)
-
-current = time.perf_counter()
-iter_trials_vrnn(42577)
-print((time.perf_counter()-current)/60)
-
-iter_trials_vrnn(523)
-
-current = time.perf_counter()
-iter_trials_ende(56924)
-print((time.perf_counter()-current)/3600)
-
