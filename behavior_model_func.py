@@ -545,7 +545,7 @@ def eval_iter(model, params, train_X, train_y, test_X, test_y, patience = 0 , ma
 
     Returns
     -------
-    eval_run : dataframe of epochs, loss, and metrics for each iteration
+    eval_df : dataframe of epochs, loss, and metrics for each iteration
     avg_val: average of the epochs, loss, and metrics (training and validation) across iterations 
     """
     # assign class weights
@@ -585,15 +585,17 @@ def eval_iter(model, params, train_X, train_y, test_X, test_y, patience = 0 , ma
         # pull out monitoring metrics
         if len(history.history['loss']) == max_epochs: # if early stopping not activated then
             mod_eval.append(max_epochs) # assign the epochs to the maximum epochs
+            mod_eval.append(i) # assign iteration number 
             for v in history.history.values():
                 mod_eval.append(v[-1]) # append ending metrics
         else: # otherwise if early stopping was activate
             mod_eval.append(len(history.history['loss'])-patience) # assign stopping epoch as the epoch before improvements dropped
+            mod_eval.append(i) # assign iteration number 
             for v in history.history.values():
                 mod_eval.append(v[-patience-1]) # append ending metrics
         eval_run.append(mod_eval)
-    eval_run = pd.DataFrame(eval_run, 
-                            columns = ['epochs','train_loss','train_f1','train_acc',
+    eval_df = pd.DataFrame(eval_run, 
+                            columns = ['epochs','iter','train_loss','train_f1','train_acc',
                                        'val_loss','val_f1','val_acc'])
-    avg_val = eval_run.mean(axis =0)
-    return eval_run, avg_val
+    avg_val = eval_df.mean(axis =0)
+    return eval_df, avg_val.loc[avg_val.index != 'iter']

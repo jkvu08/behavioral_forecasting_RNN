@@ -457,12 +457,12 @@ eval_tab, avg_eval = bmf.eval_iter(model,
                                    n = 5)
 
 eval_tab # epochs run, loss and metrics at the end of each model iteration 
-#    epochs  train_loss  train_f1  train_acc  val_loss    val_f1   val_acc
-# 0     100    0.594514  0.422973   0.767732  0.580153  0.419147  0.836952
-# 1     100    0.589609  0.425831   0.769588  0.580360  0.418597  0.837637
-# 2     100    0.586592  0.428185   0.768855  0.582417  0.416561  0.835523
-# 3     100    0.579520  0.435579   0.771248  0.582489  0.416584  0.838608
-# 4     100    0.577344  0.437561   0.772713  0.580199  0.418540  0.835980
+#    epochs  iter  train_loss  train_f1  train_acc  val_loss    val_f1   val_acc
+# 0     100     0    0.594514  0.422973   0.767732  0.580153  0.419147  0.836952
+# 1     100     1    0.589609  0.425831   0.769588  0.580360  0.418597  0.837637
+# 2     100     2    0.586592  0.428185   0.768855  0.582417  0.416561  0.835523
+# 3     100     3    0.579520  0.435579   0.771248  0.582489  0.416584  0.838608
+# 4     100     4    0.577344  0.437561   0.772713  0.580199  0.418540  0.835980
 # similar performance across iterations, may not need to run multiple iterations
 
 avg_eval # average epochs run, loss and metrics
@@ -490,12 +490,12 @@ eval_tab, avg_eval = bmf.eval_iter(model,
 eval_tab 
 # epoch after which validation loss did not improve after 50 epochs, 
 # loss and metrics at the end of each model iteration 
-#    epochs  train_loss  train_f1  train_acc  val_loss    val_f1   val_acc
-# 0     100    0.574642  0.440062   0.773519  0.579800  0.418776  0.837523
-# 1      25    0.575618  0.438945   0.773665  0.578125  0.420727  0.836495
-# 2     100    0.576639  0.437690   0.774593  0.579480  0.419330  0.837351
-# 3       6    0.577713  0.437227   0.771468  0.577878  0.420991  0.835923
-# 4      41    0.573783  0.440969   0.773909  0.577832  0.421227  0.837751
+#    epochs  iter train_loss  train_f1  train_acc  val_loss    val_f1   val_acc
+# 0     100     0   0.574642  0.440062   0.773519  0.579800  0.418776  0.837523
+# 1      25     1   0.575618  0.438945   0.773665  0.578125  0.420727  0.836495
+# 2     100     2   0.576639  0.437690   0.774593  0.579480  0.419330  0.837351
+# 3       6     3   0.577713  0.437227   0.771468  0.577878  0.420991  0.835923
+# 4      41     4   0.573783  0.440969   0.773909  0.577832  0.421227  0.837751
 # variation in epochs, however loss and metrics were consistent between runs
 
 avg_eval # average epochs run, loss and metrics
