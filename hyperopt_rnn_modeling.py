@@ -628,11 +628,84 @@ hyp_metrics = ['train_loss','val_loss',
                'hidden_layers','hidden_n0','hidden_n1', 
                'weights_0','weights_2','weights_3']
 
+# plot progression of the hyperparameter search
 progress_fig = hvf.hyperopt_progress(trial_df, hyp_metrics)
+progress_fig.savefig(path+'vrnn_123_5runs_progress.jpg', dpi = 150)
 
+# plot the training and validation loss and performance metrics against each other
+train_val_plots = hvf.train_val_comp(trial_df)
+train_val_plots.savefig(path+'vrnn_123_5runs_train_val_plot.jpg', dpi = 150)
 
+# plot kernal density of the hyperparameters against the validation loss
+kde_fig = hvf.kdeplots(trial_df,hyp_metrics[7:])
+kde_fig.savefig(path+'vrnn_123_5runs_kdeplots.jpg', dpi = 150)
 
+# plot correlation between hyperparameters and metrics
+mcorr = trial_df.loc[:, hyp_metrics].corr() # calculate the correlation between hyperparameters and metrics
+sns.heatmap(mcorr, 
+            xticklabels=mcorr.columns,
+            yticklabels=mcorr.columns,
+            cmap = 'vlag') 
 
+# use wrapper to generate dataframe of the hyperparameter trials, progression figure, 
+# train v. val performance figures, kernel density plot of hyperparameter v. validation loss 
+# and correlation plot of metrics
+trial_df = hvf.trial_correg_pdf(path = path,
+                                filename = 'VRNN_GRU_behavior_123',
+                                params = ['epochs','lookback','dropout_rate', 
+                                          'neurons_n',
+                                          'hidden_layers','hidden_n0','hidden_n1', 
+                                          'weights_0','weights_2','weights_3'], 
+                                monitor = ['train_loss','val_loss','train_f1','val_f1','train_acc','val_acc'])
+
+# run n number of trials using iteration function
+current = time.perf_counter() # keep track of time
+iter_trials(space = space_vrnn, 
+            path = path,
+            seed = 123, 
+            steps = 5, 
+            n = 30)
+print('Took ' + str(round((time.perf_counter()-current)/60,2)) + ' mins')
+
+# Best validation for trial:                                                        
+# 0.4335796535015106                                                                
+# 100%|██████████| 30/30 [07:46<00:00, 93.39s/trial, best loss: 0.5664700865745544] 
+# Best: {'dropout_rate': 0.6000000000000001, 'hidden_n0': 20.0, 'hidden_n1': 50.0, 'layers': 0.0, 'lookback': 22.0, 'neurons_n0': 35.0, 'neurons_n1': 35.0, 'td_neurons': 35.0, 'weights_0': 3.5, 'weights_2': 1.0, 'weights_3': 1.0}
+# max_evals: 30
+# Took 34.84 mins
+
+current = time.perf_counter() # keep track of time
+iter_trials(space = space_vrnn, 
+            path = path,
+            seed = 456, 
+            steps = 5, 
+            n = 25)
+print('Took ' + str(round((time.perf_counter()-current)/60,2)) + ' mins')
+
+# hyperparamters that are being optimized
+vrnn_params = ['epochs','lookback','dropout_rate', 
+               'neurons_n'
+               'hidden_layers','hidden_n0','hidden_n1', 
+               'weights_0','weights_2','weights_3']
+
+# output trial df and visualize results of the two runs
+vrnn_123 = hvf.trial_correg_pdf(path = path,
+                                 filename = 'VRNN_GRU_behavior_123',
+                                 params = vrnn_params, 
+                                 monitor = ['train_loss','val_loss','train_f1','val_f1','train_acc','val_acc'])
+
+vrnn_456 = hvf.trial_correg_pdf(path = path,
+                                 filename = 'ENDE_GRU_behavior_456',
+                                 params = ende_params, 
+                                 monitor = ['train_loss','val_loss','train_f1','val_f1','train_acc','val_acc'])
+
+# get parameter summary
+vrnn_sum = hvf.hypoutput(path = path,
+                         modelname = 'VRNN_GRU_behavior', 
+                         ci = 0.90,
+                         params = ende_params,
+                         burnin = 5,
+                         maxval = 30)
 
 # specify encoder-decoder RNN parameter space
 space_ende = {'atype'                  : 'ENDE',
@@ -659,44 +732,80 @@ space_ende = {'atype'                  : 'ENDE',
               'weights_3'              : scope.int(hp.quniform('weights_3',1,10,1))
               }
 
-seed = 123
-run_trials(filename =  path + space_ende['atype'] + '_' + space_ende['mtype'] +'_' + space_ende['predictor'] + '_' + str(seed) +'.pkl', # assign filename
-                       objective = hyperoptimizer_rnn, # assign objective function for hyperopt evaluation
-                       space = space_ende, # search space
-                       rstate = seed, # random seed
-                       initial= 3, # number of experiments to run before first save
-                       trials_step = 2) # number of experiments to run thereafter before saving
+# run using iteration function to run n number of trials
+current = time.perf_counter() # keep track of time
+iter_trials(space = space_ende, 
+            path = path,
+            seed = 123, 
+            steps = 5, 
+            n = 30)
+print('Took ' + str(round((time.perf_counter()-current)/60,2)) + ' mins')
 
-# output
-# Best validation for trial:                                                     
-# 0.3424544930458069                                                             
-# 100%|██████████| 3/3 [02:27<00:00, 49.25s/trial, best loss: 0.5815421938896179]
-# Best: {'dropout_rate': 0.8, 'hidden_n0': 25.0, 'hidden_n1': 10.0, 'layers': 1.0, 'lookback': 10.0, 'neurons_n0': 25.0, 'neurons_n1': 40.0, 'td_neurons': 5.0, 'weights_0': 5.0, 'weights_2': 4.0, 'weights_3': 5.0}
-# max_evals: 3
-# Out[81]: 3
+# Best validation for trial:                                                       
+# 0.42666730284690857                                                              
+# 100%|██████████| 30/30 [06:51<00:00, 82.31s/trial, best loss: 0.5675432682037354]
+# Best: {'dropout_rate': 0.4, 'hidden_n0': 35.0, 'hidden_n1': 30.0, 'layers': 0.0, 'lookback': 13.0, 'neurons_n0': 20.0, 'neurons_n1': 15.0, 'td_neurons': 25.0, 'weights_0': 4.5, 'weights_2': 9.0, 'weights_3': 5.0}
+# max_evals: 30
+# Took 32.51 mins
 
 # run using iteration function to run n number of trials
 current = time.perf_counter() # keep track of time
-iter_trials(space = space_vrnn, 
+iter_trials(space = space_ende, 
             path = path,
-            seed = 123, 
-            steps = 3, 
+            seed = 456, 
+            steps = 5, 
             n = 30)
 print('Took ' + str(round((time.perf_counter()-current)/60,2)) + ' mins')
+
+# Best validation for trial:                                                        
+# 0.4335796535015106                                                                
+# 100%|██████████| 30/30 [07:46<00:00, 93.39s/trial, best loss: 0.5664700865745544] 
+# Best: {'dropout_rate': 0.6000000000000001, 'hidden_n0': 20.0, 'hidden_n1': 50.0, 'layers': 0.0, 'lookback': 22.0, 'neurons_n0': 35.0, 'neurons_n1': 35.0, 'td_neurons': 35.0, 'weights_0': 3.5, 'weights_2': 1.0, 'weights_3': 1.0}
+# max_evals: 30
+# Took 34.84 mins
 
 current = time.perf_counter() # keep track of time
 iter_trials(space = space_vrnn, 
             path = path,
-            seed = 321, 
-            steps = 3, 
-            n = 30)
+            seed = 456, 
+            steps = 5, 
+            n = 25)
 print('Took ' + str(round((time.perf_counter()-current)/60,2)) + ' mins')
 
+# hyperparamters that being optimized
+ende_params = ['epochs','lookback','dropout_rate', 
+               'neurons_n0','neurons_n1','td_neurons',
+               'hidden_layers','hidden_n0','hidden_n1', 
+               'weights_0','weights_2','weights_3']
 
-# Output:
-# Best validation for trial:                                                       
-# 0.42851927876472473                                                              
-# 100%|██████████| 31/31 [02:06<00:00, 42.14s/trial, best loss: 0.5679725408554077]
-# Best: {'dropout_rate': 0.4, 'hidden_n0': 30.0, 'hidden_n1': 50.0, 'layers': 2.0, 'lookback': 13.0, 'neurons_n': 35.0, 'weights_0': 2.5, 'weights_2': 6.0, 'weights_3': 10.0}
-# max_evals: 31
-# Took 23.52 mins
+# output trial df and visualize results of the two runs
+ende_123 = hvf.trial_correg_pdf(path = path,
+                                 filename = 'ENDE_GRU_behavior_123',
+                                 params = ende_params, 
+                                 monitor = ['train_loss','val_loss','train_f1','val_f1','train_acc','val_acc'])
+
+ende_456 = hvf.trial_correg_pdf(path = path,
+                                 filename = 'ENDE_GRU_behavior_456',
+                                 params = ende_params, 
+                                 monitor = ['train_loss','val_loss','train_f1','val_f1','train_acc','val_acc'])
+
+# get parameter summary
+ende_sum = hvf.hypoutput(path = path,
+                         modelname = 'ENDE_GRU_behavior', 
+                         ci = 0.90,
+                         params = ende_params,
+                         burnin = 5,
+                         maxval = 30)
+
+# use wrapper to generate dataframe of the hyperparameter trials, progression figure, 
+# train v. val performance figures, kernel density plot of hyperparameter v. validation loss 
+# and correlation plot of metrics
+trial_df = hvf.trial_correg_pdf(path = path,
+                                filename = 'ENDE_GRU_behavior_123',
+                                params = ['epochs','lookback','dropout_rate', 
+                                          'neurons_n0','neurons_n1','td_neurons',
+                                          'hidden_layers','hidden_n0','hidden_n1', 
+                                          'weights_0','weights_2','weights_3'], 
+                                monitor = ['train_loss','val_loss','train_f1','val_f1','train_acc','val_acc'])
+
+

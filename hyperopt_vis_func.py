@@ -72,7 +72,7 @@ path = "C:\\Users\\Jannet\\Documents\\Dissertation\\codes\\behavioral_forecastin
 #########################
 def trials_to_df(trials):
     """
-    covert hyperoptimization experiment results to dataframe (eval)
+    converts hyperoptimization experiment results to dataframe
 
     Parameters
     ----------
@@ -125,85 +125,143 @@ def hyperopt_progress(df, metrics):
     return fig
 
     return(fig)
-    
+
 def train_val_comp(df):
-    fig, axis = plt.subplots(1,2,figsize=(10,3))
-    plt.subplot(1, 2, 1) # divide the plot space 
-    sns.regplot(df['train_loss'], df['val_loss'], fit_reg = True,color = 'orange') # plot the relationship between val loss and train loss
-    plt.subplot(1, 2, 2) # divide the plot space 
-    sns.regplot(df['val_f1'], df['train_f1'], fit_reg = True,color = 'black') # plot the relationship between val loss and train loss
+    """
+    Plot the training and validation loss and metrics against each other
+
+    Parameters
+    ----------
+    df : dataframe, hyperopt trial results
+
+    Returns
+    -------
+    fig: figure, plots of training v. validation loss, f1 and accuracy
+
+    """
+    fig, axis = plt.subplots(1,3,figsize=(10,3))
+    plt.subplot(1, 3, 1) # divide the plot space 
+    # plot the relationship between val loss and train loss
+    sns.regplot(x = df['val_loss'], 
+                y = df['train_loss'], 
+                fit_reg = True,
+                color = '#377eb8') 
+    # plot the relationship between val loss and train loss
+    plt.subplot(1, 3, 2) # divide the plot space 
+    sns.regplot(x = df['val_f1'], 
+                y = df['train_f1'], 
+                fit_reg = True,
+                color = '#ff7f00') 
+    plt.subplot(1, 3, 3) # divide the plot space 
+    # plot the relationship between val loss and train loss
+    sns.regplot(x = df['val_acc'], 
+                y = df['train_acc'], 
+                fit_reg = True,
+                color = '#4daf4a') 
     fig.tight_layout()
-    plt.show()
-    return(fig)
+    return fig
 
-    
 def kdeplots(df,metrics):
-    nrow = math.ceil(len(metrics)/4)
-    fig,ax = plt.subplots(nrow,4, figsize = (10,6))
-    counter = 1      
+    """
+    Generate kernal density plots of the metrics of interest against the validation loss
+
+    Parameters
+    ----------
+    df : dataframe, hyperopt trial results.
+    metrics : metrics to visualize
+
+    Returns
+    -------
+    fig : figure of hyperparameter experiment progression
+
+    """
+    nrow = math.ceil(len(metrics)/3) # get half of metrics being tracked to assign number of subplot rows
+    # specify the subplots
+    fig,ax = plt.subplots(nrow,3, figsize = (10,6))
+    counter = 1 # start counter 
+    # for each metric
     for metric in metrics:
-        plt.subplot(nrow,4,counter)
-        # if metric in ['learning_rate','hidden_layers']:
-        #    sns.histplot(df[metric])
-        if metric == 'hidden_n0':
-            sub_df = df[df['hidden_layers']==1]
-            sns.kdeplot(sub_df[metric], sub_df['val_loss'], shade = True, shade_lowest = False, legend = True, color = 'gray')
-        else:
-            sns.kdeplot(df[metric], df['val_loss'], shade = True, shade_lowest = False, legend = True, color = 'gray')
-        plt.xlabel(metric)
-        counter+=1
+        plt.subplot(nrow,3,counter) # use counter as the subplot index
+        # plot kernel density plot
+        sns.kdeplot(x = df[metric], 
+                    y = df['val_loss'], 
+                    shade = True, 
+                    thresh = 0.05, 
+                    legend = True, 
+                    color = 'gray')
+        plt.xlabel(metric)  # label the metric 
+        counter+=1 # increase the counter
     fig.tight_layout()  
-    plt.show()
-    return(fig)
+    return fig
     
-def trial_correg_plots(trials, title = None, drop_col = ['status','params','loss'], metrics=['val_f1']):
+def trial_correg_plots(trials, params, monitor = ['train_loss','val_loss','train_f1','val_f1','train_acc','val_acc']):
     """
-    Function to format hyperopt trials into dataframes and 
+    Wrapper to format hyperopt trials into dataframes and 
+    
     Parameters
     ----------
-    trials : hyperopt trials
-    Returns : correlation plot for all result metrics
+    trials : hyperopt trials 
+    params : list,
+        Hyperparameter/parameter metrics. The default is ['val_f1'].
+    monitor : list, optional
+        Loss and performance metrics. The default is ['train_loss','val_loss','train_f1','val_f1','train_acc','val_acc'].
+    filename: str, optional
+        Name to save figures. The default is None.
+        
+    Returns
     -------
-    df: dataframe of the trial results
+    df : dataframe
+        dataframe of the trial results.
 
     """
-    df = trial_to_df(trials, drop_col)
-    train_val_comp(df)
-    hyperopt_progress(df, metrics)
-    kdeplots(df, metrics[2:])
-    return(df)
+    
+    df = trials_to_df(trials) # convert hyperopt experiment results to a dataframe
+    tv_fig = train_val_comp(df) # generate plot to compare training v. validation loss and performance
+    hp_fig = hyperopt_progress(df, monitor + params) # visualize hyperopt experiment progression
+    kd_fig = kdeplots(df, params) # kernal density plot of hyperparameters against validation loss
+    return df
 
-
-def trial_correg_pdf(path, title = None, drop_col = ['status','params','loss'], metrics=['val_f1']):
+def trial_correg_pdf(path, filename, params, monitor = ['train_loss','val_loss','train_f1','val_f1','train_acc','val_acc']):
     """
-    Function to format hyperopt trials into dataframes and 
+    Function to format hyperopt trials into dataframes and visualize results
+    
     Parameters
     ----------
-    trials : hyperopt trials
-    Returns : correlation plot for all result metrics
+    path : str, file direction of hyperopt output 
+    filename: str, 
+            filename
+    params : list,
+        Hyperparameter/parameter metrics
+    monitor : list, optional
+        Loss and performance metrics. The default is ['train_loss','val_loss','train_f1','val_f1','train_acc','val_acc'].
+    
+    Returns : 
     -------
-    df: dataframe of the trial results
+    df: dataframe of the trial results.
 
     """
-    trials = joblib.load(title + '.pkl')
-    df = trial_to_df(trials, drop_col)
-    
-    if title[0] == 'e':
-        a, ax = plt.subplots()
-        sns.regplot(df['val_loss'], df['train_loss'], fit_reg = True,color = 'orange') # plot the relationship between val loss and train loss
-    else:
-        a = train_val_comp(df)
-    b = hyperopt_progress(df, metrics)
-    d = kdeplots(df, metrics[2:])
-    
-    with PdfPages(path+title+'_results.pdf') as pdf:
-        pdf.savefig(a)
-        pdf.savefig(b)
-        pdf.savefig(d)
-         # save figure
+    trials = joblib.load(path + filename + '.pkl') # load hyperopt trial file
+    df = trials_to_df(trials) # convert hyperopt experiment results to a dataframe
+    df.to_csv(path+filename+'_results.csv')
+    tv_fig = train_val_comp(df) # generate plot to compare training v. validation loss and performance
+    hp_fig = hyperopt_progress(df, monitor + params) # visualize hyperopt experiment progression
+    kd_fig = kdeplots(df, params) # kernal density plot of hyperparameters against validation loss
+    # create PDF for results and save figures in the pdf
+    with PdfPages(path+filename+'_results.pdf') as pdf:
+        pdf.savefig(tv_fig)
+        pdf.savefig(hp_fig)
+        pdf.savefig(kd_fig)
         plt.close()
-   # pdf.close()
-    return(df)
+        plt.figure(figsize=(10, 10)) # assign figure size
+        # calculate the correlation between hyperparameters and metrics
+        vcorr = df.loc[:, monitor + params].corr() 
+        # plot heatmap of correlations
+        sns.heatmap(vcorr, 
+                    xticklabels=vcorr.columns,
+                    yticklabels=vcorr.columns,
+                    cmap = 'vlag') 
+        pdf.savefig()
+    return df
 
 # filelist = []
 # for file in glob.glob('ende_f1*.pkl'):
@@ -222,59 +280,88 @@ def trial_correg_pdf(path, title = None, drop_col = ['status','params','loss'], 
 # metrics = ['val_loss', 'train_loss', 'drate','weights_0','weights_2',
 #            'weights_3','val_f1','epochs','lookback','neurons_n','hidden_layers','hidden_n0',]
 
+def get_ci(ary, threshold):
+    """
+    extract credible interval limits for each metric in the array
 
-def get_ci(ary):
-    lp95 = []
-    up95 = []
-    llim = int(ary.shape[0]*0.05)-1
-    ulim = int(ary.shape[0]*0.95)-1
-    
-    for i in range(ary.shape[1]):
-        svalues = np.sort(ary[:,i])
-        lp95.append(svalues[llim])
-        up95.append(svalues[ulim])
-    lp95 = np.array(lp95)
-    up95 = np.array(up95)
-    return lp95, up95
+    Parameters
+    ----------
+    ary : array, metric values 
+    threshold : float, 0-1
+        the credible interval threshold (alpha)
 
+    Returns
+    -------
+    lp : array, lower credible intervals
+    up: array, upper credible intervals
 
-def hypoutput(modelname, metrics,burnin=200,maxval=1000):
+    """
+    lci = (1-threshold)/2 # get lower credible interval threshold
+    uci = 1- lci # get upper credible interval threshold
+    # create empty list to population metrics 
+    lp = [] 
+    up = []
+    llim = int(ary.shape[0]*lci)
+    ulim = int(ary.shape[0]*uci)
+    for i in range(ary.shape[1]): # for each metric
+        svalues = np.sort(ary[:,i]) # sort the values of metrics
+        lp.append(svalues[llim]) # get the value at the lower credible interval
+        up.append(svalues[ulim]) # get the value at the upper credible interval
+    # transform list into array
+    lp = np.array(lp) 
+    up = np.array(up)
+    return lp, up # return the arrays of credible intervals for the metrics
+
+def hypoutput(path, modelname, params, ci = 0.90, burnin=200, maxval=1000):
     '''
     combine the hyperopt values and get nonparametric median and 95% intervals
 
     Parameters
     ----------
-    modelname : prefix of model type 
-    metrics : metrics to calculate median interval 
-    burnin : burnin 
-    maxval : maximum iterations
+    path : str,
+        location of hyperopt files
+    modelname : str, 
+        model filename prefix
+    params : list, 
+        parameters/hyperparameters to evaluate
+    ci: numeric, 
+        credible interval alpha threshold. Default is 0.90.
+    burnin : int, 
+        number of initial experiments to discard. Dafault is 200.
+    maxval : int, 
+        maximum number of experiments to compare. Default is 1000.
 
     Returns
     -------
-    entry : output of median and intervals
+    output : dataframe, 
+        formatted minimum loss, median performance metrics and median hyperparameter values with credible intervals
 
     '''
+    loss = ['train_loss','val_loss']
+    metrics = ['train_f1','val_f1','train_acc','val_acc'] + params
     dflist = [] # empty list for dataframes to combine of hyperopt outputs
-    for file in glob.glob(modelname + '*.pkl'): # get all hyperopt files with prefix
-        trials = joblib.load(file) # load each file
-        trial_df = trial_to_df(trials) # trasnform into dataframe
-        dflist.append(trial_df.iloc[burnin:maxval,]) # add to list
+    for file in glob.glob(path + modelname + '*_results.csv'): # load all the hyperopt trials using the list of filenames
+        trial_df =  read_csv(file, header =0, index_col = 0) # transform each file into a dataframe
+        trial_df = trial_df.iloc[burnin:maxval,:] # subset experiments based on burn-in and max value
+        dflist.append(trial_df) # add to the list of dataframes
     trial_df = pd.concat(dflist) # concatenate all dataframes
-    trial_np = trial_df[metrics].to_numpy() # transforma to array for manipulation
-    lci, uci = get_ci(trial_np) # get intervals 
-    medval = np.median(trial_np,axis = 0) # get median for hyperparameters
-    minval = np.min(trial_np,axis = 0) # get minimum for loss
-    lci[0:6] = np.round(lci[0:6],2) # round lower interval
-    uci[0:6] = np.round(uci[0:6],2) # round upper interval
-    minval[0:2] = np.round(minval[0:2],2) # round minimum value for loss
-    medval[2:6] = np.round(medval[2:6],2) # round  median value for hyperparameters
-    
-    d1 = [str(x) + ' (' +str(y) +','+ str(z) + ')' for x, y, z in zip(minval[:2], lci[:2], uci[:2])] # format loss values
-    d2 = [str(x) + ' (' +str(y) +','+ str(z) + ')' for x, y, z in zip(medval[2:6], lci[2:6], uci[2:6])] # format float values
-    d3 = [str(x) + ' (' +str(y) +','+ str(z) + ')' for x, y, z in zip(medval[6:].astype('int32'), lci[6:].astype('int32'), uci[6:].astype('int32'))] # format integer values
-    
-    entry = [modelname] + d1 + d2 + d3 # add together into same list
-    return entry # output values and intervals
+    trial_df = trial_df[loss + metrics] # subset dataframe by metrics
+    lci, uci = get_ci(trial_df.to_numpy(), ci) # get credible intervals 
+    lci = np.round(lci,2) # round lower interval
+    uci = np.round(uci,2) # round upper interval
+    medval = trial_df[metrics].median(axis = 0) # get median for hyperparameters
+    medval = medval.round(2) 
+    minval = trial_df[loss].min(axis = 0) # get minimum loss
+    minval = minval.round(2)
+    d1 = [str(x) + ' (' +str(y) +','+ str(z) + ')' for x, y, z in zip(minval, lci[:2], uci[:2])] # format loss values
+    d2 = [str(x) + ' (' +str(y) +','+ str(z) + ')' for x, y, z in zip(medval[:4], lci[2:6], uci[2:6])] # format float values
+    d3 = [str(x) + ' (' +str(y) +','+ str(z) + ')' for x, y, z in zip(medval[4:].astype('int32'), lci[6:].astype('int32'), uci[6:].astype('int32'))] # format integer values
+    output = [modelname] + d1 + d2 + d3 # add together into same list
+    # convert to dataframe
+    output = pd.DataFrame(output, 
+                          index = ['model'] + 
+                          loss + metrics, columns= ['summary']) 
+    return output # output values and intervals
    
 # modelnames= ['vrnn_f1_GRU_behavior', 'vrnn_f1_GRU_full','vrnn_f1_GRU_extrinsic',
 #             'vrnn_f1_LSTM_behavior', 'vrnn_f1_LSTM_full','vrnn_f1_LSTM_extrinsic',
@@ -905,179 +992,8 @@ def report_average(reports):
     return mean_dict
 
 
-def eval_iter(model, params, train_X, train_y, test_X, test_y, metric, patience=10, max_epochs = 100, n = 1):
-    """
-    Fit and evaluate model n number of times. Get the average of those runs
 
-    Parameters
-    ----------
-    model : model
-    params : hyperparameters
-    train_X : training features
-    train_y :  training targets
-    test_X : testing features
-    test_y : testing targets
-    metric: performance metric
-    patience: early stopping patience value
-    max_epochs: maximum number of epochs
-    n: number of iterations
-    
-    Returns
-    -------
-    eval_run : metrics for each iteration
-    avg_val: average of the metrics average: val_f1, val_loss, train_f1, train_loss 
-    """
-    # assign the weights 
-   # weights = dict(zip([0,1], [params['weights_0'], params['weights_1']]))
-    # assign the callback and weight type based on the model type
-    early_stopping = EarlyStopping(patience= patience, monitor='val_pr_auc', mode = 'max', restore_best_weights=True, verbose=0)
-  #  class_weights = weights # assign class weights as weights
-    eval_run = [] # create empty list for the evaluations
-    for i in range(n): # for each iteration
-        # fit the model 
-        history = model.fit(train_X, train_y, 
-                            epochs = max_epochs, 
-                            batch_size = params['batch_size'],
-                            verbose = 2,
-                            shuffle=False,
-                            validation_data = (test_X, test_y),
-                          #  class_weight = class_weights,
-                            callbacks = [early_stopping])
-        # pull out monitoring metrics
-        if len(history.history['loss']) == max_epochs:
-            params['epochs'] = max_epochs # assign the epochs to the maximum epochs
-            val_loss = history.history['val_loss'][-1] # get the last val loss
-            train_loss = history.history['loss'][-1] # get the last train loss
-            score = history.history['val_'+str(metric)][-1] # pull the last validation f1 from the history
-            train_score = history.history[str(metric)][-1] # pull the last train f1 from the history
-        else: # otherwise if early stopping was activate
-            params['epochs'] = len(history.history['loss'])-patience # assign stopping epoch as the epoch before no more improvements were seen in the f1 score
-            val_loss = history.history['val_loss'][-patience-1] # assign validation loss from the stopping epochs
-            train_loss = history.history['loss'][-patience-1] # assign trainn loss from the stopping epochs
-            score = history.history['val_'+str(metric)][-patience-1] # assign the val metric from the stopping epoch
-            train_score = history.history[str(metric)][-patience-1] # assign the training f1 from the stopping epoch
-        train_y_prob = model.predict(train_X)
-        test_y_prob = model.predict(test_X)
-        test_pr = average_precision_score(test_y, test_y_prob)
-        train_pr = average_precision_score(train_y, train_y_prob)
-        test_roc = roc_auc_score(test_y, test_y_prob)
-        train_roc = roc_auc_score(train_y, train_y_prob)
-        eval_run.append([score,val_loss,train_score,train_loss, test_pr, train_pr, test_roc, train_roc])
-    avg_val = np.mean(eval_run,axis=0)
-    return avg_val[0],avg_val[1],avg_val[2],avg_val[3],avg_val[4],avg_val[5], avg_val[6], avg_val[7]
 
-# hyperoptimization functions
-def run_trials(filename, objective, space, rstate, initial = 20, trials_step = 1):
-    """
-    Run trials indefinitely until manually stopped
-    
-    Parameters
-    ----------
-    filename : trial filename
-    objective : objective
-    space : parameters
-    initial: initial number of trials, should be > 20 
-    rstate: set random state for consistency across trials
-    trials_steps: how many additional trials to do after loading saved trials.
-    
-    Returns
-    -------
-    None.
-
-    """
-    max_trials = initial  # set the initial trials to run (should be at least 20, since hyperopt selects parameters randomly before 20 trials)
-    try:  # try to load an already saved trials object, and increase the max
-        trials = joblib.load(filename) # load file 
-        print("Found saved Trials! Loading...")
-        max_trials = len(trials.trials) + trials_step # increase the max_evals value
-        print("Rerunning from {} trials to {} (+{}) trials".format(len(trials.trials), max_trials, trials_step))
-    except:  # if trial file cannot be found
-        trials = Trials() # create a new trials object
-    # run the search
-    best = fmin(fn=objective, space=space, algo=tpe.suggest, max_evals=max_trials, trials=trials, rstate = np.random.RandomState(rstate))
-    print("Best:", best)
-    print("max_evals:", max_trials)
-    joblib.dump(trials, filename) # save the trials object
-    return max_trials
-
-# Visualization functions
-
-def trial_to_df(trials, drop_col = ['status','params','loss']):
-    df = pd.DataFrame(trials.results) # extract the trial results and make into dataframe
-    df1 = df.params.to_list() # convert the parameter dictionarys to list to convert into dataframe as well
-    df1 = pd.DataFrame(df1) # convert into dataframe
-    df = pd.concat([df,df1], axis = 1) # concatenate the two trial result dataframes    
-    df.drop(columns = drop_col, axis = 1, inplace = True) # drop unnecessary columns
-    return(df)
-
-def trial_correg_plots(trials, title = None, drop_col = ['status','params','loss']):
-    """
-    Function to format hyperopt trials into dataframes and 
-    Parameters
-    ----------
-    trials : hyperopt trials
-    Returns : correlation plot for all result metrics
-    -------
-    df: dataframe of the trial results
-
-    """
-    df = trial_to_df(trials, drop_col)
-    fig, axis = plt.subplots(2,3,figsize=(10,3))
-    plt.subplot(2, 2, 1) # divide the plot space 
-    plt.plot(df.index, df['val_loss'])
-    plt.xlabel('runs')
-    plt.ylabel('val_loss')
-    plt.subplot(2, 2, 2) # divide the plot space 
-    plt.plot(df.index, df['val_acc'])
-    plt.xlabel('runs')
-    plt.ylabel('val_acc')
-    plt.subplot(2, 2, 3) # divide the plot space 
-    plt.plot(df.index, df['val_roc'])
-    plt.xlabel('runs')
-    plt.ylabel('val_roc')
-    plt.subplot(2, 2, 4) # divide the plot space 
-    plt.plot(df.index, df['val_pr'])
-    plt.xlabel('runs')
-    plt.ylabel('val_pr')
-    plt.subplot(2, 2, 4) # divide the plot space 
-    plt.plot(df.index, df['val_pr'])
-    plt.xlabel('runs')
-    plt.ylabel('val_pr')
-    
-    plt.suptitle(title)
-    
-    fig.tight_layout()
-    plt.show()
-    
-   # plt.show()
-    fig.tight_layout()
-    
-    df_list = list()
-    for i in df['mtype'].unique():
-        sub_df = df[df['mtype'] == i]
-        df_list.append(sub_df)
-        vcorr = sub_df.corr() # calculate the correlation
-        fig, axis = plt.subplots(1,5,figsize=(20,4))
-        plt.subplot(1, 5, 1) # divide the plot space 
-        sns.regplot(df['val_loss'], df['train_loss'], fit_reg = True,color = 'orange') # plot the relationship between val loss and train loss
-        plt.title(title + ' loss')
-        plt.subplot(1, 5, 2) # divide the plot space
-        sns.regplot(df['val_acc'], df['train_acc'], fit_reg = True,color = 'pink') # plot the relationship between val loss and train loss
-        plt.title(title + ' acc')
-        plt.subplot(1, 5, 3) # divide the plot space 
-        sns.regplot(df['val_roc'], df['train_roc'], fit_reg = True,color = 'purple') # plot the relationship between val loss and train loss
-        plt.title(title + ' roc')
-        plt.subplot(1, 5, 4) # divide the plot space 
-        sns.regplot(df['val_pr'], df['train_pr'], fit_reg = True,color = 'green') # plot the relationship between val loss and train loss
-        plt.title(title + ' pr')
-        plt.subplot(1, 5, 5) # divide the plot space 
-        sns.heatmap(vcorr, 
-                    xticklabels=vcorr.columns,
-                    yticklabels=vcorr.columns,
-                    cmap = 'vlag') 
-        fig.tight_layout()
-        plt.show()
-    return df_list
 
 def kde_comp_mm(sub_df, groups, metric = 'val_acc', title = None):
     """
