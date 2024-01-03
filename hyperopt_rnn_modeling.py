@@ -679,31 +679,33 @@ iter_trials(space = space_vrnn,
             path = path,
             seed = 456, 
             steps = 5, 
-            n = 25)
+            n = 30)
 print('Took ' + str(round((time.perf_counter()-current)/60,2)) + ' mins')
 
+
 # hyperparamters that are being optimized
-vrnn_params = ['epochs','lookback','dropout_rate', 
-               'neurons_n'
+vrnn_params = ['epochs','lookback','dropout_rate', 'neurons_n',
                'hidden_layers','hidden_n0','hidden_n1', 
                'weights_0','weights_2','weights_3']
+
+selection_metrics = ['train_loss','val_loss','train_f1','val_f1','train_acc','val_acc']
 
 # output trial df and visualize results of the two runs
 vrnn_123 = hvf.trial_correg_pdf(path = path,
                                  filename = 'VRNN_GRU_behavior_123',
                                  params = vrnn_params, 
-                                 monitor = ['train_loss','val_loss','train_f1','val_f1','train_acc','val_acc'])
+                                 monitor = selection_metrics)
 
 vrnn_456 = hvf.trial_correg_pdf(path = path,
-                                 filename = 'ENDE_GRU_behavior_456',
-                                 params = ende_params, 
-                                 monitor = ['train_loss','val_loss','train_f1','val_f1','train_acc','val_acc'])
+                                 filename = 'VRNN_GRU_behavior_456',
+                                 params = vrnn_params, 
+                                 monitor = selection_metrics)
 
 # get parameter summary
 vrnn_sum = hvf.hypoutput(path = path,
                          modelname = 'VRNN_GRU_behavior', 
                          ci = 0.90,
-                         params = ende_params,
+                         params = vrnn_params,
                          burnin = 5,
                          maxval = 30)
 
@@ -772,6 +774,9 @@ iter_trials(space = space_vrnn,
             n = 25)
 print('Took ' + str(round((time.perf_counter()-current)/60,2)) + ' mins')
 
+########################################
+#### Model evaluation and selection ####
+########################################
 # hyperparamters that being optimized
 ende_params = ['epochs','lookback','dropout_rate', 
                'neurons_n0','neurons_n1','td_neurons',
@@ -782,30 +787,91 @@ ende_params = ['epochs','lookback','dropout_rate',
 ende_123 = hvf.trial_correg_pdf(path = path,
                                  filename = 'ENDE_GRU_behavior_123',
                                  params = ende_params, 
-                                 monitor = ['train_loss','val_loss','train_f1','val_f1','train_acc','val_acc'])
+                                 monitor = selection_metrics)
 
 ende_456 = hvf.trial_correg_pdf(path = path,
                                  filename = 'ENDE_GRU_behavior_456',
                                  params = ende_params, 
-                                 monitor = ['train_loss','val_loss','train_f1','val_f1','train_acc','val_acc'])
+                                 monitor = selection_metrics)
 
-# get parameter summary
-ende_sum = hvf.hypoutput(path = path,
-                         modelname = 'ENDE_GRU_behavior', 
+# compare models
+modelnames= ['VRNN_GRU_behavior', 'ENDE_GRU_behavior']
+
+# create list to populate 
+rnn_list = []
+# run the hypoutput for all model types
+for mn in modelnames: 
+    if mn[0:4] == 'VRNN':
+        entry = hvf.hypoutput(path = path,
+                         modelname = mn, 
+                         ci = 0.90,
+                         params = vrnn_params,
+                         burnin = 5,
+                         maxval = 30)
+    else:
+        entry = hvf.hypoutput(path = path,
+                         modelname = mn, 
                          ci = 0.90,
                          params = ende_params,
                          burnin = 5,
                          maxval = 30)
+    rnn_list.append(entry) 
 
-# use wrapper to generate dataframe of the hyperparameter trials, progression figure, 
-# train v. val performance figures, kernel density plot of hyperparameter v. validation loss 
-# and correlation plot of metrics
-trial_df = hvf.trial_correg_pdf(path = path,
-                                filename = 'ENDE_GRU_behavior_123',
-                                params = ['epochs','lookback','dropout_rate', 
-                                          'neurons_n0','neurons_n1','td_neurons',
-                                          'hidden_layers','hidden_n0','hidden_n1', 
-                                          'weights_0','weights_2','weights_3'], 
-                                monitor = ['train_loss','val_loss','train_f1','val_f1','train_acc','val_acc'])
+modelcomp_df = pd.concat(rnn_list, axis = 1, join ='outer')
+modelcomp_df.to_csv(path + 'modelcomparison_30runs_ci90.csv')
 
+################################
+#### Predictive performance ####
+################################
+# get summary statistics for each model type
+# concatenate experiments for a particular model together
+vrnn_df = pd.concat([vrnn_123,vrnn_456], axis=0) 
+ende_df = pd.concat([ende_123,ende_456], axis=0) 
 
+# calculate summary functions
+vrnn_behavior_sum = hvf.sum_function(vrnn_df[selection_metrics], 'vrnn_behavior_30runs', path)
+
+# view data to get sense of output
+vrnn_behavior_sum.columns
+# Index(['model', 'mean', 'sd', 'median', 'mad', 'lci95', 'uci95', 'lci90',
+#        'uci90', 'lci80', 'uci80', 'lci50', 'uci50'],
+#       dtype='object')
+
+vrnn_behavior_sum.iloc[0,:]
+# model     vrnn_behavior_30runs
+# mean                  1.031898
+# sd                     0.19613
+# median                0.997207
+# mad                   0.164722
+# lci95                 0.728355
+# uci95                 1.430349
+# lci90                 0.772152
+# uci90                 1.369691
+# lci80                 0.796362
+# uci80                 1.345614
+# lci50                 0.869758
+# uci50                  1.19639
+# Name: train_loss, dtype: object
+
+# calculate summary functions
+ende_behavior_sum = hvf.sum_function(ende_df[selection_metrics], 'ende_behavior_30runs', path)
+
+# view data to get sense of output
+# ende_behavior_sum.iloc[0,:]
+# model     ende_behavior_30runs
+# mean                  0.964753
+# sd                    0.193616
+# median                0.957458
+# mad                   0.154591
+# lci95                  0.67004
+# uci95                 1.346113
+# lci90                 0.673511
+# uci90                  1.28895
+# lci80                 0.704848
+# uci80                 1.242567
+# lci50                 0.825524
+# uci50                  1.11884
+# Name: train_loss, dtype: object
+
+# put cross model comparisons into single file 
+cross_comp = pd.concat([vrnn_behavior_sum,ende_behavior_sum],axis = 0)

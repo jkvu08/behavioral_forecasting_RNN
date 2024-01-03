@@ -280,9 +280,50 @@ def trial_correg_pdf(path, filename, params, monitor = ['train_loss','val_loss',
 # metrics = ['val_loss', 'train_loss', 'drate','weights_0','weights_2',
 #            'weights_3','val_f1','epochs','lookback','neurons_n','hidden_layers','hidden_n0',]
 
+def get_ci_df(df,threshold):
+    """
+    extract credible interval limits for each metric in a dataframe
+
+    Parameters
+    ----------
+    df : dataframe, metric values 
+    threshold : float, 0-1
+        the credible interval threshold (alpha)
+
+    Returns
+    -------
+    lp : series, 
+        lower credible intervals
+    up: series, 
+        upper credible intervals
+    
+    """
+    # calculate alpha for credible interval
+    lb = (1-threshold)/2 # alpha
+    ub = 1-((1-threshold)/2) # 1- alpha
+    
+    # create empty list to population metrics 
+    lp = []
+    up = []
+    
+    # pull the lower and upper limit indices that correspond to the credible interval cut off
+    llim = int(df.shape[0]*lb)-1
+    ulim = int(df.shape[0]*ub)-1
+    
+    collist = list(df.columns) # get metric columns as list
+    for i in collist: # for each column
+        svalues = df.loc[:,i].sort_values(ignore_index=True) # subset relevant metric and sort
+        # pull credible interval values
+        lp.append(svalues[llim])
+        up.append(svalues[ulim])
+    # output as series
+    lp = pd.Series(lp, index = collist)
+    up = pd.Series(up, index = collist)
+    return lp, up
+
 def get_ci(ary, threshold):
     """
-    extract credible interval limits for each metric in the array
+    extract credible interval limits for each metric in an array
 
     Parameters
     ----------
@@ -301,6 +342,7 @@ def get_ci(ary, threshold):
     # create empty list to population metrics 
     lp = [] 
     up = []
+    # pull the lower and upper limit indices that correspond to the credible interval cut off
     llim = int(ary.shape[0]*lci)
     ulim = int(ary.shape[0]*uci)
     for i in range(ary.shape[1]): # for each metric
@@ -356,127 +398,73 @@ def hypoutput(path, modelname, params, ci = 0.90, burnin=200, maxval=1000):
     d1 = [str(x) + ' (' +str(y) +','+ str(z) + ')' for x, y, z in zip(minval, lci[:2], uci[:2])] # format loss values
     d2 = [str(x) + ' (' +str(y) +','+ str(z) + ')' for x, y, z in zip(medval[:4], lci[2:6], uci[2:6])] # format float values
     d3 = [str(x) + ' (' +str(y) +','+ str(z) + ')' for x, y, z in zip(medval[4:].astype('int32'), lci[6:].astype('int32'), uci[6:].astype('int32'))] # format integer values
-    output = [modelname] + d1 + d2 + d3 # add together into same list
+    output = d1 + d2 + d3 # add together into same list
     # convert to dataframe
     output = pd.DataFrame(output, 
-                          index = ['model'] + 
-                          loss + metrics, columns= ['summary']) 
+                          index = loss + metrics, 
+                          columns= [modelname]) 
     return output # output values and intervals
    
+def sum_function(df,filename,path):
+    """
+    Calculates summary statistics and credible intervals of the performance metrics
+    across all trials for a particular model.
+
+    Parameters
+    ----------
+    df : dataframe,
+        performance metrics
+    filename : str,
+        filename to save result 
+    path : str, 
+        directory location to save file
+
+    Returns
+    -------
+    summary_df : dataframe,
+        summary statistics of model performance with credible intervals.
+
+    """
+    # calcuate summary statistics
+    grand_mean = df.mean(axis = 0) # calcualte grand median
+    grand_median = df.median(axis = 0) # calcualte grand median
+    grand_sd = df.std(axis = 0) # calculate grand standard deviateion
+    grand_mad = df.mad(axis = 0) # calculate grand standard deviateion
+    
+    # calcuate credible intervals 
+    l50, u50 = get_ci(df.to_numpy(), 0.50) # get 50% credible intervals 
+    l80, u80 = get_ci(df.to_numpy(), 0.80) # get 80% credible intervals
+    l90, u90 = get_ci(df.to_numpy(), 0.90) # get 90% credible intervals
+    l95, u95 = get_ci(df.to_numpy(), 0.95) # get 95% credible intervals
+    
+    # concatenate credible intervals
+    ci_df = pd.DataFrame([l95, u95, l90, 
+                          u90, l80, u80, 
+                          l50, u50], 
+                         columns = grand_mean.index)
+    
+    # concatenate summary statistics with credible intervals
+    summary_df = pd.concat([grand_mean, grand_sd, 
+                            grand_median, grand_mad,
+                            ci_df.transpose()],
+                            axis = 1) # generate summary table 
+    
+    # name the columns
+    summary_df.columns = ['mean','sd','median', 
+                          'mad','lci95','uci95',
+                          'lci90','uci90','lci80',
+                          'uci80','lci50','uci50']
+    
+    summary_df['model'] = filename # add model identifier
+    summary_df = summary_df.iloc[:, np.r_[-1, 0:(summary_df.shape[1]-1)]]  # reorder dataframe so model identifier is first column
+    summary_df.to_csv(path + filename+'_summary.csv') # save output
+    return summary_df
+
 # modelnames= ['vrnn_f1_GRU_behavior', 'vrnn_f1_GRU_full','vrnn_f1_GRU_extrinsic',
 #             'vrnn_f1_LSTM_behavior', 'vrnn_f1_LSTM_full','vrnn_f1_LSTM_extrinsic',
 #             'ende_f1_GRU_behavior', 'ende_f1_GRU_full','ende_f1_GRU_extrinsic',
 #             'ende_f1_LSTM_behavior', 'ende_f1_LSTM_full','ende_f1_LSTM_extrinsic',
 #             ]
-
-# modelnames= ['vrnn_GRU_full', 'vrnn_LSTM_full','ende_GRU_full','ende_LSTM_full']
-
-
-# ende_df = pd.DataFrame(columns = ['model','val_loss','train_loss', 'drate','weights_0','weights_2','weights_3','epochs','lookback','neurons_n0','neurons_n1',
-#            'hidden_layers','hidden_n0','td_neurons'])
-# vrnn_df = pd.DataFrame(columns = ['model','val_loss', 'train_loss', 'drate','weights_0','weights_2',
-#            'weights_3','val_f1','epochs','lookback','neurons_n','hidden_layers','hidden_n0'])
-
-# # run the hypoutput for all model types
-# for mn in modelnames:
-#     if mn[0:4] == 'vrnn':
-#         metrics = ['val_loss', 'train_loss', 'drate','weights_0','weights_2',
-#            'weights_3','val_f1','epochs','lookback','neurons_n','hidden_layers','hidden_n0']
-#         entry = hypoutput(mn, metrics)
-#         vrnn_df.loc[len(vrnn_df.index)] = entry 
-#     else:
-#         metrics = ['val_loss','train_loss', 'drate','weights_0','weights_2','weights_3','epochs','lookback','neurons_n0','neurons_n1',
-#            'hidden_layers','hidden_n0','td_neurons']
-#         entry = hypoutput(mn, metrics)
-#         ende_df.loc[len(ende_df.index)] = entry 
-        
-# df = pd.concat([vrnn_df,ende_df], axis = 0, join ='outer',ignore_index = True)
-# df.to_csv('behavior_f1_loss_update_sumcombo90.csv')
-
-# dflist = [] # empty list for dataframes to combine of hyperopt outputs
-# for file in glob.glob('vrnn_f1_GRU_full*.pkl'): # get all hyperopt files with prefix
-#     trials = joblib.load(file) # load each file
-#     trial_df = trial_to_df(trials) # trasnform into dataframe
-#     dflist.append(trial_df) # add to list
-# trial_df = pd.concat(dflist,ignore_index = True) # concatenate all dataframes      
-
-# trial_df.to_csv('vrnn_gru_full_hyperopt_combined.csv')
-# kdeplots(trial_df, ['val_f1','drate','weights_0','weights_2',
-#            'weights_3','epochs','lookback','neurons_n','hidden_layers','hidden_n0'])
-
-# trials = joblib.load('vrnn_GRU_full_75879.pkl')
-
-# for file in filelist:
-#     trial_df = trial_correg_pdf(path, file,['status','params','loss'], metrics = metrics)
-#     print(file)
-
-# trial_df = trial_correg_pdf(path, 'vrnn_GRU_full_42577',['status','params','loss'], metrics = metrics)
-
-# trial0 = joblib.load(filelist[0]+'.pkl')
-# trial1 = joblib.load(filelist[1]+'.pkl')
-# trial2 = joblib.load(filelist[2]+'.pkl')
-# trial_df0 = trial_to_df(trial0, drop_col = ['status','params','loss'])
-# trial_df1 = trial_to_df(trial1, drop_col = ['status','params','loss'])
-# trial_df2 = trial_to_df(trial2, drop_col = ['status','params','loss'])
-
-# trial_df = trial_df0.append(trial_df1, ignore_index = True)
-# trial_df = trial_df.append(trial_df2, ignore_index = True)
-# for file in filelist:
-#     trials = joblib.load(file+'.pkl')
-#     trial_df = trial_to_df(trials, drop_col = ['status','params','loss'])
-    
-#     print(file)
-    
-#     trial_to_df(trials, drop_col = ['status','params','loss'])
-
-
-# trial_df = trial_correg_pdf(path, 'vrnn_LSTM_full_92997',['status','params','loss'], metrics = metrics)
-
-
-# ende_df = pd.DataFrame(columns = ['model'] + metrics)
-# vrnn_df = pd.DataFrame(columns = ['model'] + metrics)
-
-# for file in filelist:
-#     trials = joblib.load(file + '.pkl')
-#     trial_df = trial_to_df(trials, ['status','params','loss'])  
-#     trial_np = trial_df[metrics].to_numpy()
-#     lci, uci = get_ci(trial_np)
-#     medval = np.median(trial_np,axis = 0)
-#     minval = np.min(trial_np,axis = 0)
-#     lci[0:6] = np.round(lci[0:6],2)
-#     uci[0:6] = np.round(uci[0:6],2)
-#     minval[0:2] = np.round(minval[0:2],2)
-#     medval[2:6] = np.round(medval[2:6],2)
-    
-#     d1 = [str(x) + ' (' +str(y) +','+ str(z) + ')' for x, y, z in zip(minval[:2], lci[:2], uci[:2])]
-#     d2 = [str(x) + ' (' +str(y) +','+ str(z) + ')' for x, y, z in zip(medval[2:6], lci[2:6], uci[2:6])]
-#     d3 = [str(x) + ' (' +str(y) +','+ str(z) + ')' for x, y, z in zip(medval[6:].astype('int32'), lci[6:].astype('int32'), uci[6:].astype('int32'))]
-    
-#     entry = [file] + d1 + d2 + d3
-#     vrnn_df.loc[len(vrnn_df.index)] = entry 
-#    # ende_df.loc[len(ende_df.index)] = entry
-    
-# vrnn_df.to_csv('vrnn_behavior_update.csv')
-# ende_df.to_csv('ende_behavior_update.csv')
-
-# trial_df = trial_correg_plots(trials, ['status','params','loss'], metrics = metrics)     
-
-# get_ci_df(trial_df[trial_df['hidden_layers'] ==1],0.5)
-
-def sum_function(df,filename):
-    grand_mean = df.mean(axis = 0) # calcualte grand median
-    grand_median = df.median(axis = 0) # calcualte grand median
-    grand_sd = df.std(axis = 0) # calculate grand standard deviateion
-    grand_mad = df.mad(axis = 0) # calculate grand standard deviateion
-    l50, u50 = get_ci_df(df, 0.50) # get 50% credible intervals 
-    l80, u80 = get_ci_df(df, 0.80) # get 80% credible intervals
-    l90, u90 = get_ci_df(df, 0.90) # get 90% credible intervals
-    l95, u95 = get_ci_df(df, 0.95) # get 95% credible intervals
-    summary_df = pd.concat([grand_mean, grand_sd, grand_median, grand_mad,l95, u95, l90, u90, l80,u80,l50,u50],axis = 1) # generate summary table 
-    summary_df.columns = ['mean','sd','median', 'mad','lci95','uci95','lci90','uci90','lci80','uci80','lci50','uci50'] # add column names 
-    summary_df['model'] = filename
-    summary_df.to_csv(filename+'_summary.csv') #save output
-    return summary_df
 
 #markov_df = read_csv('model_comparison_behavior21_markov.csv', header = 0, index_col = 0)
 #actdist_df = read_csv('model_comparison_behavior21_actdist.csv', header = 0, index_col = 0)
@@ -503,24 +491,6 @@ def sum_function(df,filename):
 #     print(trial_df.shape)
 #     trials.append(trial_df)
     
-def get_ci_df(ary,percent):
-    lp = []
-    up = []
-    lb = (1-percent)/2
-    ub = 1-((1-percent)/2)
-    llim = int(ary.shape[0]*lb)-1
-    ulim = int(ary.shape[0]*ub)-1
-    
-    collist = list(ary.columns) 
-    for i in collist:
-        svalues = ary.sort_values(i, ignore_index=True)
-        lp.append(svalues[i][llim])
-        up.append(svalues[i][ulim])
-    lp = pd.Series(lp, index = collist)
-    up = pd.Series(up, index = collist)
-    return lp, up
-
-
 # calculate rhat to check for convergence
 def convergence_sum(prefix, metrics, burnin = 0, maxval = 1000):
     trials = []
