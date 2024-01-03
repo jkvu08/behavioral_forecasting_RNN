@@ -682,33 +682,6 @@ iter_trials(space = space_vrnn,
             n = 30)
 print('Took ' + str(round((time.perf_counter()-current)/60,2)) + ' mins')
 
-
-# hyperparamters that are being optimized
-vrnn_params = ['epochs','lookback','dropout_rate', 'neurons_n',
-               'hidden_layers','hidden_n0','hidden_n1', 
-               'weights_0','weights_2','weights_3']
-
-selection_metrics = ['train_loss','val_loss','train_f1','val_f1','train_acc','val_acc']
-
-# output trial df and visualize results of the two runs
-vrnn_123 = hvf.trial_correg_pdf(path = path,
-                                 filename = 'VRNN_GRU_behavior_123',
-                                 params = vrnn_params, 
-                                 monitor = selection_metrics)
-
-vrnn_456 = hvf.trial_correg_pdf(path = path,
-                                 filename = 'VRNN_GRU_behavior_456',
-                                 params = vrnn_params, 
-                                 monitor = selection_metrics)
-
-# get parameter summary
-vrnn_sum = hvf.hypoutput(path = path,
-                         modelname = 'VRNN_GRU_behavior', 
-                         ci = 0.90,
-                         params = vrnn_params,
-                         burnin = 5,
-                         maxval = 30)
-
 # specify encoder-decoder RNN parameter space
 space_ende = {'atype'                  : 'ENDE',
               'mtype'                  : 'GRU',
@@ -777,6 +750,57 @@ print('Took ' + str(round((time.perf_counter()-current)/60,2)) + ' mins')
 ########################################
 #### Model evaluation and selection ####
 ########################################
+# hyperparamters that are being optimized
+vrnn_params = ['epochs','lookback', 'neurons_n',
+               'hidden_layers','hidden_n0','hidden_n1', 
+               'dropout_rate','weights_0','weights_2','weights_3']
+
+selection_metrics = ['train_loss','val_loss','train_f1','val_f1','train_acc','val_acc']
+
+# output trial df and visualize results of the two runs
+vrnn_123 = hvf.trial_correg_pdf(path = path,
+                                 filename = 'VRNN_GRU_behavior_123',
+                                 params = vrnn_params, 
+                                 monitor = selection_metrics)
+
+vrnn_456 = hvf.trial_correg_pdf(path = path,
+                                 filename = 'VRNN_GRU_behavior_456',
+                                 params = vrnn_params, 
+                                 monitor = selection_metrics)
+
+# get parameter summary
+hvf.hypoutput(path = path,
+              modelname = 'VRNN_GRU_behavior', 
+              ci = 0.90,
+              params = vrnn_params,
+              burnin = 0,
+              maxval = 30)
+
+#               VRNN_GRU_behavior
+# train_loss     0.71 (0.73,1.37)
+# val_loss       0.57 (0.57,0.59)
+# train_f1       0.42 (0.33,0.44)
+# val_f1         0.42 (0.34,0.43)
+# train_acc       0.77 (0.71,0.8)
+# val_acc        0.85 (0.83,0.88)
+# epochs               50 (50,50)
+# lookback              11 (1,21)
+# dropout_rate      0.5 (0.1,0.8)
+# neurons_n             30 (5,50)
+# hidden_layers           1 (0,2)
+# hidden_n0      35.0 (10.0,50.0)
+# hidden_n1      45.0 (50.0,50.0)
+# weights_0        3.25 (1.0,5.0)
+# weights_2             12 (2,24)
+# weights_3              6 (1,10)
+
+
+vrnn_exp, vrnn_combined, vrnn_summary = hvf.convergence_sum(path = path,
+                                                            modelname = 'VRNN_GRU_behavior',
+                                                            params = selection_metrics + vrnn_params,
+                                                            burnin = 0, 
+                                                            maxval = 30)
+
 # hyperparamters that being optimized
 ende_params = ['epochs','lookback','dropout_rate', 
                'neurons_n0','neurons_n1','td_neurons',
@@ -794,6 +818,12 @@ ende_456 = hvf.trial_correg_pdf(path = path,
                                  params = ende_params, 
                                  monitor = selection_metrics)
 
+ende_sum_rhat = hvf.convergence_sum(path = path,
+                                    modelname = 'ENDE_GRU_behavior',
+                                    params = ende_params,
+                                    burnin = 0, 
+                                    maxval = 30)
+
 # compare models
 modelnames= ['VRNN_GRU_behavior', 'ENDE_GRU_behavior']
 
@@ -803,18 +833,18 @@ rnn_list = []
 for mn in modelnames: 
     if mn[0:4] == 'VRNN':
         entry = hvf.hypoutput(path = path,
-                         modelname = mn, 
-                         ci = 0.90,
-                         params = vrnn_params,
-                         burnin = 5,
-                         maxval = 30)
+                              modelname = mn, 
+                              ci = 0.90,
+                              params = vrnn_params,
+                              burnin = 5,
+                              maxval = 30)
     else:
         entry = hvf.hypoutput(path = path,
-                         modelname = mn, 
-                         ci = 0.90,
-                         params = ende_params,
-                         burnin = 5,
-                         maxval = 30)
+                              modelname = mn, 
+                              ci = 0.90,
+                              params = ende_params,
+                              burnin = 5,
+                              maxval = 30)
     rnn_list.append(entry) 
 
 modelcomp_df = pd.concat(rnn_list, axis = 1, join ='outer')
@@ -829,7 +859,9 @@ vrnn_df = pd.concat([vrnn_123,vrnn_456], axis=0)
 ende_df = pd.concat([ende_123,ende_456], axis=0) 
 
 # calculate summary functions
-vrnn_behavior_sum = hvf.sum_function(vrnn_df[selection_metrics], 'vrnn_behavior_30runs', path)
+vrnn_behavior_sum = hvf.sum_function(df = vrnn_df[selection_metrics], 
+                                     filename = 'vrnn_behavior_30runs', 
+                                     path = path)
 
 # view data to get sense of output
 vrnn_behavior_sum.columns
@@ -875,3 +907,34 @@ ende_behavior_sum = hvf.sum_function(ende_df[selection_metrics], 'ende_behavior_
 
 # put cross model comparisons into single file 
 cross_comp = pd.concat([vrnn_behavior_sum,ende_behavior_sum],axis = 0)
+
+# modelnames= ['vrnn_f1_GRU_behavior', 'vrnn_f1_GRU_full','vrnn_f1_GRU_extrinsic',
+#             'vrnn_f1_LSTM_behavior', 'vrnn_f1_LSTM_full','vrnn_f1_LSTM_extrinsic',
+#             'ende_f1_GRU_behavior', 'ende_f1_GRU_full','ende_f1_GRU_extrinsic',
+#             'ende_f1_LSTM_behavior', 'ende_f1_LSTM_full','ende_f1_LSTM_extrinsic',
+#             ]
+
+#markov_df = read_csv('model_comparison_behavior21_markov.csv', header = 0, index_col = 0)
+#actdist_df = read_csv('model_comparison_behavior21_actdist.csv', header = 0, index_col = 0)
+
+# a = sum_function(markov_df.iloc[:,2:], 'markov21_behavior_compcheck')
+# b = sum_function(actdist_df.iloc[:,2:], 'actdist21_behavior_compcheck')
+# df_tabs = [markov_df, actdist_df]
+# df_tabs = [act_dist21, act_dist23, markov21, markov23, rnn_median21, rnn_median21_binom, rnn_best23, rnn_best23_binom]
+# filename = ['markov21_check','act_dist21_check']
+
+# filename = ['act_dist21', 'act_dist23', 'markov21', 'markov23', 'rnn_median21', 'rnn_median21_binom', 'rnn_best23', 'rnn_best23_binom']
+# empty_list = []
+# for i in range(len(df_tabs)):
+#     a = sum_function(df_tabs[i].iloc[:,2:], filename[i])
+#     empty_list.append(a)
+
+# cross_comp_tab = pd.concat(empty_list)    
+# cross_comp_tab.to_csv('cross_comparison_behavior_ci_markov_act_21.csv')
+# trials = []
+# for file in glob.glob('ende_GRU_extrinsic_56924' +'*.pkl'): # for files with this prefix
+#     print(file)    
+#     file = joblib.load(file) # load each file 
+#     trial_df = trial_to_df(file)  # convert to dataframe
+#     print(trial_df.shape)
+#     trials.append(trial_df)

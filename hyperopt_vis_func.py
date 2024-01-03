@@ -87,9 +87,14 @@ def trials_to_df(trials):
     results = pd.DataFrame(results) # convert to dataframe
     params_list = results.params.to_list() # convert all parameters from hyperopt exp into a list
     params_df = pd.DataFrame(params_list) # convert params for each hyperopt exp into dataframe 
-    avg_results = results.avg_eval.to_list() # converte all all avg results for each hyperopt experiment into list                
+    avg_results = results.avg_eval.to_list() # convert all all avg results for each hyperopt experiment into list                
     avg_results = pd.concat(avg_results, axis = 1).transpose() # convert each avg result into dataframe and transpose so each row represents a hyperoptimization experiment
     df = pd.concat([params_df, avg_results], axis = 1) # concatenate experiment parameters and metrics into a single dataframe
+    # set nan value for hidden neurons that hyperopt drew but did not use in the model based on the hidden layers implemented 
+    df.loc[df['hidden_layers'] < 1, 'hidden_n0'] = np.NaN 
+    df.loc[df['hidden_layers'] < 2, 'hidden_n1'] = np.NaN 
+    df.sort_index(inplace = True) # ensure the indices are ordered
+    df['epochs'] = df['epochs'].astype('int64')
     return df
 
 def hyperopt_progress(df, metrics):
@@ -123,8 +128,6 @@ def hyperopt_progress(df, metrics):
     fig.supxlabel('runs') # add x axis label
     fig.tight_layout() 
     return fig
-
-    return(fig)
 
 def train_val_comp(df):
     """
@@ -227,9 +230,10 @@ def trial_correg_pdf(path, filename, params, monitor = ['train_loss','val_loss',
     
     Parameters
     ----------
-    path : str, file direction of hyperopt output 
+    path : str, 
+        directory location to save output file 
     filename: str, 
-            filename
+        filename prefix for output file
     params : list,
         Hyperparameter/parameter metrics
     monitor : list, optional
@@ -306,13 +310,14 @@ def get_ci_df(df,threshold):
     lp = []
     up = []
     
-    # pull the lower and upper limit indices that correspond to the credible interval cut off
-    llim = int(df.shape[0]*lb)-1
-    ulim = int(df.shape[0]*ub)-1
-    
     collist = list(df.columns) # get metric columns as list
     for i in collist: # for each column
-        svalues = df.loc[:,i].sort_values(ignore_index=True) # subset relevant metric and sort
+        svalues = df.loc[:,i].dropna() # extract metric column and drop na values
+        n = svalues.count() # get number of non na values
+        # pull the lower and upper limit indices that correspond to the credible interval cut off
+        llim = int(np.floor(n*lb))-1
+        ulim = int(np.ceil(n*ub))-1
+        svalues = svalues.sort_values(ignore_index=True) # sort values
         # pull credible interval values
         lp.append(svalues[llim])
         up.append(svalues[ulim])
@@ -342,11 +347,13 @@ def get_ci(ary, threshold):
     # create empty list to population metrics 
     lp = [] 
     up = []
-    # pull the lower and upper limit indices that correspond to the credible interval cut off
-    llim = int(ary.shape[0]*lci)
-    ulim = int(ary.shape[0]*uci)
     for i in range(ary.shape[1]): # for each metric
         svalues = np.sort(ary[:,i]) # sort the values of metrics
+        svalues = svalues[~np.isnan(svalues)] # get rid of na values
+        n = len(svalues)
+        # pull the lower and upper limit indices that correspond to the credible interval cut off
+        llim = int(np.floor(n*lci))-1
+        ulim = int(np.ceil(n*uci))-1
         lp.append(svalues[llim]) # get the value at the lower credible interval
         up.append(svalues[ulim]) # get the value at the upper credible interval
     # transform list into array
@@ -361,13 +368,13 @@ def hypoutput(path, modelname, params, ci = 0.90, burnin=200, maxval=1000):
     Parameters
     ----------
     path : str,
-        location of hyperopt files
+        directory where hyperopt files are saved
     modelname : str, 
         model filename prefix
     params : list, 
         parameters/hyperparameters to evaluate
     ci: numeric, 
-        credible interval alpha threshold. Default is 0.90.
+        credible interval threshold. Default is 0.90.
     burnin : int, 
         number of initial experiments to discard. Dafault is 200.
     maxval : int, 
@@ -381,6 +388,7 @@ def hypoutput(path, modelname, params, ci = 0.90, burnin=200, maxval=1000):
     '''
     loss = ['train_loss','val_loss']
     metrics = ['train_f1','val_f1','train_acc','val_acc'] + params
+    colnames = loss + metrics
     dflist = [] # empty list for dataframes to combine of hyperopt outputs
     for file in glob.glob(path + modelname + '*_results.csv'): # load all the hyperopt trials using the list of filenames
         trial_df =  read_csv(file, header =0, index_col = 0) # transform each file into a dataframe
@@ -395,29 +403,36 @@ def hypoutput(path, modelname, params, ci = 0.90, burnin=200, maxval=1000):
     medval = medval.round(2) 
     minval = trial_df[loss].min(axis = 0) # get minimum loss
     minval = minval.round(2)
-    d1 = [str(x) + ' (' +str(y) +','+ str(z) + ')' for x, y, z in zip(minval, lci[:2], uci[:2])] # format loss values
-    d2 = [str(x) + ' (' +str(y) +','+ str(z) + ')' for x, y, z in zip(medval[:4], lci[2:6], uci[2:6])] # format float values
-    d3 = [str(x) + ' (' +str(y) +','+ str(z) + ')' for x, y, z in zip(medval[4:].astype('int32'), lci[6:].astype('int32'), uci[6:].astype('int32'))] # format integer values
-    output = d1 + d2 + d3 # add together into same list
+    sumval = pd.concat([minval, medval]) # concatenate the median and min values
+    format_values = [] # create empty list to populate format values
+    
+    # generate formated values 'med or min (lower CI, upper CI)'
+    for i in range(len(colnames)):
+        if trial_df[colnames[i]].dtype == 'int64': # format as integer 
+            text  = str(sumval[i].astype('int64')) + ' (' +str(lci[i].astype('int64')) +','+ str(uci[i].astype('int64')) + ')'
+        else: # keep as float
+            text  = str(sumval[i]) + ' (' +str(lci[i]) +','+ str(uci[i]) + ')'
+        format_values.append(text)
     # convert to dataframe
-    output = pd.DataFrame(output, 
-                          index = loss + metrics, 
+    output = pd.DataFrame(format_values, 
+                          index = colnames, 
                           columns= [modelname]) 
     return output # output values and intervals
    
-def sum_function(df,filename,path):
+def sum_function(df,filename, path = None):
     """
     Calculates summary statistics and credible intervals of the performance metrics
-    across all trials for a particular model.
+    across all trials for a particular model architecture
 
     Parameters
     ----------
     df : dataframe,
         performance metrics
-    filename : str,
-        filename to save result 
-    path : str, 
-        directory location to save file
+    filename : str, optional 
+        filename  
+    path : str, optional
+        directory to save file. Default is None
+        
 
     Returns
     -------
@@ -456,103 +471,132 @@ def sum_function(df,filename,path):
                           'uci80','lci50','uci50']
     
     summary_df['model'] = filename # add model identifier
-    summary_df = summary_df.iloc[:, np.r_[-1, 0:(summary_df.shape[1]-1)]]  # reorder dataframe so model identifier is first column
-    summary_df.to_csv(path + filename+'_summary.csv') # save output
+    summary_df = summary_df.iloc[:, np.r_[-1, 0:(summary_df.shape[1]-1)]]  # reorder dataframe so model identifier is the first column
+    if path != None:
+        summary_df.to_csv(path+filename+'_performance_summary.csv') # save output
     return summary_df
 
-# modelnames= ['vrnn_f1_GRU_behavior', 'vrnn_f1_GRU_full','vrnn_f1_GRU_extrinsic',
-#             'vrnn_f1_LSTM_behavior', 'vrnn_f1_LSTM_full','vrnn_f1_LSTM_extrinsic',
-#             'ende_f1_GRU_behavior', 'ende_f1_GRU_full','ende_f1_GRU_extrinsic',
-#             'ende_f1_LSTM_behavior', 'ende_f1_LSTM_full','ende_f1_LSTM_extrinsic',
-#             ]
+def rhat_calc(values):
+    """
+    Calculate Gelman-Rubin rhat estimate of parameter convergence across multiple experiments
 
-#markov_df = read_csv('model_comparison_behavior21_markov.csv', header = 0, index_col = 0)
-#actdist_df = read_csv('model_comparison_behavior21_actdist.csv', header = 0, index_col = 0)
+    Parameters
+    ----------
+    values : list,
+       Set of the parameters selected in each hyperoptimization experiment. Assumes that the same number of trials were ran within each experiment   
+    Raises
+    ------
+    Exception
+        Too few models to compare
 
-# a = sum_function(markov_df.iloc[:,2:], 'markov21_behavior_compcheck')
-# b = sum_function(actdist_df.iloc[:,2:], 'actdist21_behavior_compcheck')
-# df_tabs = [markov_df, actdist_df]
-# df_tabs = [act_dist21, act_dist23, markov21, markov23, rnn_median21, rnn_median21_binom, rnn_best23, rnn_best23_binom]
-# filename = ['markov21_check','act_dist21_check']
+    Returns
+    -------
+    rhat : Gelman-Rubin rhat value
 
-# filename = ['act_dist21', 'act_dist23', 'markov21', 'markov23', 'rnn_median21', 'rnn_median21_binom', 'rnn_best23', 'rnn_best23_binom']
-# empty_list = []
-# for i in range(len(df_tabs)):
-#     a = sum_function(df_tabs[i].iloc[:,2:], filename[i])
-#     empty_list.append(a)
+    """
+    n_exp = len(values) # number of experiments
+    if n_exp > 1:
+        var_list = [] # list of variances lists
+        mean_list = [] # list of means
+        # generate mean and variance for each experiment
+        for i in range(n_exp):
+            exp_var = values[i].var(axis = 0) # get trial variance 
+            exp_mean = values[i].mean(axis = 0) # get trial variance 
+            var_list.append(exp_var)  # add to variance list
+            mean_list.append(exp_mean)  # add to variance list     
+        # convert lists to array
+        var_list = np.array(var_list)
+        within_mean = np.array(mean_list)
+        within_var = np.mean(var_list) # calculate within variance
+        full_values = pd.concat(values, ignore_index = True) # concatenate all values into single file
+        full_values.dropna(inplace =True) # drop all na values since some parameters were not used in all trials (i.e., hidden neurons)
+        n_trials = int(len(full_values)/n_exp) # calculate number of non-na parameter draws per experiment, assuming same number of non-na parameters were drawn in each experiment for the calculation 
+        grand_mean = full_values.mean(axis = 0) # calculate grand mean
+        # calculate the between exp variance
+        bvalues = (within_mean - grand_mean)**2 # get difference between trial means and grand mean and square
+        bvalues = sum(bvalues) # sum together
+        between_var = n_trials/(n_exp-1)*bvalues # square and multiply by data factor
+        rhat = (((n_trials-1)/n_trials)*within_var + (1/n_trials)*between_var)/within_var # calculate rhat   
+    else:
+        raise Exception ('too few experiments to compare')  
 
-# cross_comp_tab = pd.concat(empty_list)    
-# cross_comp_tab.to_csv('cross_comparison_behavior_ci_markov_act_21.csv')
-# trials = []
-# for file in glob.glob('ende_GRU_extrinsic_56924' +'*.pkl'): # for files with this prefix
-#     print(file)    
-#     file = joblib.load(file) # load each file 
-#     trial_df = trial_to_df(file)  # convert to dataframe
-#     print(trial_df.shape)
-#     trials.append(trial_df)
-    
+    return rhat
+        
 # calculate rhat to check for convergence
-def convergence_sum(prefix, metrics, burnin = 0, maxval = 1000):
-    trials = []
-    var_list = []
-    mean_list = []
-    nhidden = 0
-    for file in glob.glob(prefix +'*.pkl'): # for files with this prefix
+def convergence_sum(modelname, path, params, burnin = 200, maxval = 1000):
+    """
+    Calculates Gelman-Rubin rhat summary statistics and credible intervals of the performance metrics
+    across all trials for a particular model architecture.
+
+    Parameters
+    ----------
+    modelname : str, 
+        model filename prefix
+    path : str,
+        directory where hyperopt files are saved
+    params : list, 
+        parameters/hyperparameters to evaluate
+    burnin : int, 
+        number of initial experiments to discard. Dafault is 200.
+    maxval : int, 
+        maximum number of experiments to compare. Default is 1000.
+
+    Returns
+    -------
+    exp : list,
+        hyperopt experiment output dataframes subset by burnin and maxeval
+    df : dataframe,
+        single dataframe of outputs for all hyperopt experiments of a single model type
+        
+    summary_df : dataframe,
+        summary statistics of model performance with credible intervals and Gelman-Rubin rhat.
+
+    """
+    # load in all files of the model type
+    exp = [] # create empty list to populate with files
+    for file in glob.glob(path + modelname +'*.pkl'): # for files with this prefix
         file = joblib.load(file) # load each file 
-        trial_df = trial_to_df(file)  # convert to dataframe
-        trial_df = trial_df[metrics] # subset metrics of interest only
-        trial_df = trial_df.iloc[burnin:maxval,] # drop burnin draws
-        trial_df['hidden_n0'] = np.where(trial_df['hidden_layers'] == 0, np.NaN, trial_df['hidden_n0'])
-        nhidden += trial_df[trial_df['hidden_layers'] == 1].shape[0]
-        trials.append(trial_df) # add to trial list
-        trial_var = trial_df.var(axis = 0) # get trial variance 
-        trial_mean = trial_df.mean(axis = 0) # get trial variance 
-        var_list.append(trial_var)  # add to variance list
-        mean_list.append(trial_mean)  # add to variance list        
-    n = trial_df.shape[0] # get number of draws 
-    nhidden = round(nhidden/3,0) # get estimate of n, making assumption that get equal number of hidden layers choosen in each chain, not true though
-    j = len(var_list)
-    within_var = pd.concat(var_list,axis = 1) # merge trial variances into single dataframe
-    w = within_var.mean(axis=1) # get within variance
-    within_mean = pd.concat(mean_list,axis = 1)
-    df = pd.concat(trials,axis = 0, ignore_index=True) # merge all datapoints into same dataframe
+        trial_df = trials_to_df(file)  # convert to dataframe
+        trial_df = trial_df[params] # subset params of interest only
+        trial_df = trial_df.iloc[burnin:maxval,] # drop burnin draws and subsete to maxval to ensure comparing same number of trials across experiments 
+        exp.append(trial_df) # add trial dataframe to list
+    # calculate rhat 
+    rhat_list = [] # empty list for rhat
+    for i in params: # for each parameter
+        params_values = [] # create list for subseting parameter column from trial dataframes
+        for j in range(len(exp)): # for each trial
+            params_values.append(exp[j][i]) # append the paramater column
+        rhat = rhat_calc(params_values) # calcualate the rhat
+        rhat_list.append(rhat) # append rhat to list of rhats
     
-    grand_mean = df.mean(axis = 0) # get grand mean
-    # calculate the between variance
-    bvalues = within_mean.subtract(grand_mean, axis = 0) # get difference between trial mean and grand mean
-    bvalues = bvalues**2
-    bvalues = bvalues.sum(axis=1) # sum them together
-    b = n/(j-1)*bvalues # square and multiply by data factor
-    n = trial_df.shape[0] # get number of draws 
-    rhat = (((n-1)/n)*w + (1/n)*b)/w # calculate rhat
-    grand_median = df.median(axis = 0) # calcualte grand median
-    grand_sd = df.std(axis = 0) # calculate grand standard deviateion
-    grand_mad = df.mad(axis = 0) # calculate grand standard deviateion
-    l50, u50 = get_ci_df(df, 0.50) # get 50% credible intervals 
-    l80, u80 = get_ci_df(df, 0.80) # get 80% credible intervals
-    l90, u90 = get_ci_df(df, 0.90) # get 90% credible intervals
-    l95, u95 = get_ci_df(df, 0.95) # get 95% credible intervals
-    summary_df = pd.concat([grand_mean, grand_sd, grand_median, grand_mad, rhat, l95, u95, l90, u90, l80,u80,l50,u50],axis = 1) # generate summary table 
-    summary_df.columns = ['mean','sd','median', 'mad','rhat','lci95','uci95','lci90','uci90','lci80','uci80','lci50','uci50'] # add column names 
-    summary_df.to_csv(prefix + '_'+str(burnin)+'_summary.csv') #save output
-    df['trial'] = np.repeat(range(0,j),n)
-    return trials, df, summary_df # return summary table 
-
-# metrics_vrnn = ['drate','weights_0','weights_2',
-#            'weights_3','lookback','epochs','neurons_n','hidden_layers','hidden_n0']
-
-# metrics_ende = ['drate','weights_0','weights_2','weights_3','lookback','epochs','neurons_n0','neurons_n1',
-#            'hidden_layers','hidden_n0','td_neurons']
-
-# prefix = 'vrnn_f1_GRU_extrinsic'
-# burnin = 200
-
+    df = pd.concat(exp, axis = 0, ignore_index = True) # concatenate all experiments into a single dataframe
+    summary_df = sum_function(df, modelname)
+    summary_df['rhat'] = rhat_list
+    summary_df.to_csv(path + modelname + '_'+str(burnin)+'_summary.csv') #save output
+    return exp, df, summary_df # return summary table 
 
 def chain_plots(trials, metric, ax = None):
+    """
+    Overlay of time series of each hyperopt experiment    
+    
+    Parameters
+    ----------
+    trials : list,
+        hyperopt experiment output dataframes subset by burnin and maxeval
+    metric : str,
+        parameter/metric to monitor
+    ax : list, optional
+        subplot location. The default is None.
+
+    Returns
+    -------
+    ax : TYPE
+        DESCRIPTION.
+
+    """
     colors = ['coral','cyan','goldenrod']
     for i in range(len(trials)):    
         sns.lineplot(ax = ax, data = trials[i],x = trials[i].index, y = metric, alpha =0.5, color = colors[i])
-        ax.set_xlabel('drate')
     return ax
 
 def hist_plots(trials, metric,ax = None):
@@ -564,7 +608,7 @@ def hist_plots(trials, metric,ax = None):
 def kde_plots(trials, metric, ax= None):
     colors = ['coral','cyan','goldenrod']
     for i in range(len(trials)):  
-        sns.kdeplot(ax =ax, data = trials[i], x = metric, y = 'val_loss', shade = True, legend = False, color = colors[i], alpha =0.5)
+        sns.kdeplot(ax = ax, data = trials[i], x = metric, y = 'val_loss', shade = True, legend = False, color = colors[i], alpha =0.5)
     return ax
     
 def loss_plots(trials):
@@ -960,10 +1004,6 @@ def report_average(reports):
             dictionary[key] = sum(d[label][key] for d in reports) / len(reports) # get the average of the values
         mean_dict[label] = dictionary # add dictionary to mean_dict
     return mean_dict
-
-
-
-
 
 def kde_comp_mm(sub_df, groups, metric = 'val_acc', title = None):
     """
@@ -1529,9 +1569,6 @@ def model_pipeline_valid(params):
         print('architecture not satisfied')
         exit()
     
-        print('architecture not satisfied')
-        exit()
-        
     history = model.fit(X_train_scaled, y_train, 
                          epochs = int(params['epochs']), 
                          batch_size = int(params['batch']),
