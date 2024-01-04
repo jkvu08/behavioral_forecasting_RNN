@@ -8,14 +8,16 @@ Functions to compile, run and evaluate single vanilla RNN and encoder-decoder RN
 The use of these functions are demonstrated in the single_vanilla_rnn.py and singel_ende_rnn.py codes. 
 
 """
-
+import time
 import numpy as np
 from matplotlib import pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 import seaborn as sns
 import pandas as pd
 from pandas import DataFrame
-from sklearn.metrics import confusion_matrix, classification_report, f1_score
+from numpy import newaxis
+from sklearn.metrics import confusion_matrix, classification_report, f1_score, average_precision_score, roc_auc_score, log_loss
+from scikit.metrics import plot_roc_curve
 import os
 os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 import tensorflow as tf
@@ -23,8 +25,6 @@ from tensorflow.keras.layers import Dense, Dropout, LSTM, Masking, GRU, RepeatVe
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.callbacks import EarlyStopping
-#from tensorflow.keras.metrics import CategoricalAccuracy, Accuracy, Precision, Recall, AUC
-#from tensorflow_addons.metrics import F1Score
 import keras.backend as K
 
 #########################
@@ -388,6 +388,55 @@ def build_ende(features, targets, lookback, n_outputs, neurons_n0 = 10, neurons_
                       sample_weight_mode = 'temporal') # add sample weights, since class weights are not supported in 3D
     return model
 
+def build_model_func(params, features, targets):
+    '''
+    construct vanilla RNN or encoder-decode RNN based on parameter dictionary specifications
+
+    Parameters
+    ----------
+    params : dict, dictionary of paramters and hyperparameters
+    features : int, number of features used for prediction
+    targets : int, number of targets (classes) predicted
+
+    Raises
+    ------
+    Exception
+        something other than 'VRNN' designating vanilla RNN or 'ENDE' designating encoder-decoder RNN was specified in params['atype']
+
+    Returns
+    -------
+    model : RNN model
+
+    '''
+    if params['atype'] == 'VRNN':
+        model = build_rnn(features, 
+                              targets, 
+                              lookback = params['lookback'], 
+                              neurons_n = params['neurons_n'],
+                              hidden_n = [params['hidden_n0'],params['hidden_n1']],
+                              learning_rate =params['learning_rate'],
+                              dropout_rate = params['dropout_rate'],
+                              layers = params['hidden_layers'], 
+                              mtype = params['mtype'], 
+                              cat_loss = params['loss'])
+    elif params['atype'] == 'ENDE':
+        model = build_ende(features, 
+                               targets, 
+                               lookback = params['lookback'], 
+                               n_outputs = params['n_outputs'], 
+                               neurons_n0 = params['neurons_n0'],
+                               neurons_n1 = params['neurons_n1'],
+                               hidden_n = [params['hidden_n0'],params['hidden_n1']],
+                               td_neurons = params['td_neurons'], 
+                               learning_rate =params['learning_rate'],
+                               dropout_rate = params['dropout_rate'],
+                               layers = params['hidden_layers'], 
+                               mtype = params['mtype'],
+                               cat_loss = params['loss'])
+    else:
+        raise Exception ('invalid model architecture')    
+    return model
+
 ##########################
 #### Model evaluation ####
 ##########################
@@ -599,3 +648,200 @@ def eval_iter(model, params, train_X, train_y, test_X, test_y, patience = 0 , ma
                                        'val_loss','val_f1','val_acc'])
     avg_val = eval_df.mean(axis =0)
     return eval_df, avg_val.loc[avg_val.index != 'iter']
+
+def result_summary(test_y, y_prob, path, filename):
+    """
+    Summary of model evaluation for single model for multiple iterations. Generates the prediction timestep and overall F1 score, overall 
+    classification report and confusion matrix. Outputs classification report nad confusion matrix to pdf.
+    
+    Parameters
+    ----------
+    test_y: one-hot encoded test_y
+    y_prob: probability of class prediction 
+
+    Returns
+    -------
+    score: overall f1 score
+    scores: timestep level f1 scores
+    class_rep: overall classification report
+    cm: overall confusion matrix
+
+    """
+    y_label = to_label(test_y) # observed target
+    y_pred = to_label(y_prob, prob = True) # predicted target
+    
+    if len(y_label.shape) == 1: # no multiple scores
+        scores = 'nan'
+    else:
+        scores = [] # create empty list to populate with timestep level predictions
+        for i in range(len(y_pred)): # for each timestep
+            f1 = f1_score(y_label[i,:], y_pred[i,:], average = 'macro') # get the f1 value at the timestep
+            scores.append(f1) # append to the empty scores list
+        y_pred = np.concatenate(y_pred) # merge predictions across timesteps to single vector
+        y_label = np.concatenate(y_label) # merge target values across timesteps to single vector
+    print('sequence level f1 score: ', scores)
+    score = f1_score(y_label, y_pred, average = 'macro') # generate the overall f1 score
+    print('overall f1 score: ', score)
+    
+    class_rep = class_report(y_label, y_pred) # get class report for overall
+    
+    with PdfPages(path+filename+'.pdf') as pdf:
+        cm = confusion_mat(y_label, y_pred) # get confusion matrix for overall
+        pdf.savefig(cm) # save figure
+        plt.close() # close page
+        plt.figure(figsize=(6, 2)) # assign figure size
+        plt.table(cellText=np.round(class_rep.values,4),
+                      colLabels = class_rep.columns, 
+                      rowLabels=class_rep.index,
+                      loc='center',
+                      fontsize = 9)
+        plt.axis('tight') 
+        plt.axis('off')
+        pdf.savefig() # save figure
+        plt.close() # close page
+    return score, scores, class_rep, cm
+
+def model_assess(train, test, params):
+    """
+    Run and assess predictive performance of models
+
+    Parameters
+    ----------
+    train : training dataset
+    test : testing dataset
+    params : model parameters
+        
+    Raises
+    ------
+    Exception
+        something other than 'full','behavior','internal','external' designated in params['predictor']
+    
+    Returns
+    -------
+    results_dict : dictionary 
+        {'model': model
+        'history': fitted model results
+        'confusion_matrix': confusion matrix
+        'report': classification report
+        'predictions': testing dataframe with predictions 
+        'train_X': training features
+        'train_y': training targets
+        'test_X': testing features
+        'test_y': testing targets
+        'y_pred': predictions 
+        'y_prob': multiclass prediction probabilities
+        'evals': llist of loss, precision-recall AUC and receiver-operator AUC 
+        'params': parameters
+        }
+        
+    """
+    start_time = time.time()
+    targets = 4 # set number of targets (4 behavior classes)
+    # format the training and testing data for the model
+    train_X, train_y, train_dft = to_supervised(data = train.iloc[:,6:34], 
+                                                    TID = train['TID'], 
+                                                    window = 1, 
+                                                    lookback = params['lookback'], 
+                                                    n_output = params['n_outputs']) 
+    # format testing data
+    test_X, test_y, test_dft = to_supervised(data = test.iloc[:,6:34], 
+                                                 TID = test['TID'],
+                                                 window = 1, 
+                                                 lookback = params['lookback'], 
+                                                 n_output = params['n_outputs'])
+    
+    # if encoder-decode model and predict 1 timestep, reconfigure 2d y to 3d
+    if params['atype'] == 'ENDE' and params['n_outputs'] == 1:
+        test_y = test_y[:,newaxis,:]
+        train_y = train_y[:,newaxis,:]
+    
+    # assign and format feature set
+    if params['predictor'] == 'full': # use full set of features
+        features=28 # set feature number
+    elif params['predictor'] == 'behavior': # use only prior behaviors as features
+        features=4 # set features
+        # subset only prior behavior features
+        train_X = np.copy(train_X[:,:,0:4]) 
+        test_X = np.copy(test_X[:,:,0:4])
+    elif params['predictor'] == 'internal': # use internal features (behaviors and sex) as features
+        features=12 # set features
+        # subset only prior behavior features
+        train_X = np.copy(train_X[:,:,0:12]) 
+        test_X = np.copy(test_X[:,:,0:12])
+    elif params['predictor'] == 'external': # use the extrinsic conditions
+        features = 17
+        # subset only extrinsic features
+        train_X = np.copy(train_X[:,:,8:25])
+        test_X = np.copy(test_X[:,:,8:25])  
+    else:
+        raise Exception ('invalid feature selection')   
+    model = build_model_func(params, features, targets) # build model
+    
+    # assign class weights
+    weights = dict(zip([0,1,2,3], 
+                       [params['weights_0'], 
+                        params['weights_1'], 
+                        params['weights_2'], 
+                        params['weights_3']]))
+    # assign the callback and weight type based on the model type
+    if params['atype'] == 'VRNN':
+        class_weights = weights # assign class weights as weights
+        sample_weights = None
+    elif params['atype'] == 'ENDE':
+        class_weights = None 
+        sample_weights = get_sample_weights(train_y, weights) # generate the formatted sample weights 
+    else:
+        raise Exception ('invalid model type')
+    # fit the model 
+    history = model.fit(train_X, 
+                        train_y,
+                        epochs = params['max_epochs'], 
+                        batch_size = params['batch_size'],
+                        sample_weight = sample_weights,
+                        class_weight = class_weights,
+                        verbose = 2,
+                        shuffle=False)
+     
+    y_prob = model.predict(test_X)
+    y_label = to_label(test_y) # observed target
+    y_pred = to_label(y_prob, prob = True) # predicted target
+    
+    loss = log_loss(y_label, y_prob) # calculate loss
+    pr_auc = average_precision_score(y_label, y_prob) # calculate area under the precision-recal curve
+    roc_auc = roc_auc_score(y_label, y_prob) # calculate area under the receiver operator curve
+    cm = confusion_mat(y_label, y_pred) # get confusion matrix for overall
+    class_rep = class_report(y_label, y_pred) # get class report for overall
+     
+    # fig, axis = plt.subplots(1,4,figsize=(18,4))
+    # plt.subplot(1,4,1)
+    # confusion_mat(y_test,y_pred, LABELS = LABELS, normalize = 'true')
+    # plt.subplot(1,4,2)
+    # confusion_mat(y_test,y_pred, LABELS = LABELS, normalize = None)
+    # plt.subplot(1, 4, 3) 
+    # plot_roc_curv(y_test, y_prob) # roc curve
+    # plt.subplot(1, 4, 4)  
+    # pr_plot(y_test, y_prob) # precision recall curve
+    # plt.show()
+    # fig.tight_layout() 
+        # add y and ypred to the curent covariate features
+    results_df = np.column_stack((test_y, y_pred, y_prob))
+    results_df = pd.DataFrame(results_df, colnames = ['observed','prediction','feed_prob','rest_prob','social_prob','travel_prob'])
+    pred_df = pd.concat([train,results_df], axis = 1, ignore_index = True)
+    
+    results_dict = {'model': model,
+                    'history': history,
+                    'confusion_matrix': cm, 
+                    'report': class_rep, 
+                    'predictions': pred_df,
+                    'train_X': train_X,
+                    'train_y': train_y,
+                    'test_X': test_X,
+                    'test_y': test_y,
+                    'y_pred': y_pred,
+                    'y_prob': y_prob,
+                    'evals': [loss, pr_auc, roc_auc],
+                    'params': params
+                    }
+
+    print('took', (time.time()-start_time)/60, 'minutes') # print the time lapsed 
+    return results_dict

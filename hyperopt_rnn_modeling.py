@@ -62,55 +62,6 @@ datasub = datasub[['ID', 'TID', 'track_position', 'track_length', 'focal', 'year
 #####################################
 #### Hyperoptimization functions ####
 #####################################
-def hyp_nest(params, features, targets):
-    '''
-    construct vanilla RNN or encoder-decode RNN based on parameter dictionary specifications
-
-    Parameters
-    ----------
-    params : dict, dictionary of paramters and hyperparameters
-    features : int, number of features used for prediction
-    targets : int, number of targets (classes) predicted
-
-    Raises
-    ------
-    Exception
-        something other than 'VRNN' designating vanilla RNN or 'ENDE' designating encoder-decoder RNN was specified in params['atype']
-
-    Returns
-    -------
-    model : RNN model
-
-    '''
-    if params['atype'] == 'VRNN':
-        model = bmf.build_rnn(features, 
-                              targets, 
-                              lookback = params['lookback'], 
-                              neurons_n = params['neurons_n'],
-                              hidden_n = [params['hidden_n0'],params['hidden_n1']],
-                              learning_rate =params['learning_rate'],
-                              dropout_rate = params['dropout_rate'],
-                              layers = params['hidden_layers'], 
-                              mtype = params['mtype'], 
-                              cat_loss = params['loss'])
-    elif params['atype'] == 'ENDE':
-        model = bmf.build_ende(features, 
-                               targets, 
-                               lookback = params['lookback'], 
-                               n_outputs = params['n_outputs'], 
-                               neurons_n0 = params['neurons_n0'],
-                               neurons_n1 = params['neurons_n1'],
-                               hidden_n = [params['hidden_n0'],params['hidden_n1']],
-                               td_neurons = params['td_neurons'], 
-                               learning_rate =params['learning_rate'],
-                               dropout_rate = params['dropout_rate'],
-                               layers = params['hidden_layers'], 
-                               mtype = params['mtype'],
-                               cat_loss = params['loss'])
-    else:
-        raise Exception ('invalid model architecture')    
-    return model
-
 def hyperoptimizer_rnn(params):
     """
     hyperparameter optimizer objective function to be used with hyperopt
@@ -173,7 +124,7 @@ def hyperoptimizer_rnn(params):
         test_X = np.copy(test_X[:,:,8:25])  
     else:
         raise Exception ('invalid feature selection')   
-    model = hyp_nest(params, features, targets) # build model
+    model = bmf.build_model_func(params, features, targets) # build model
     # fit model and extract evaluation epochs, loss and metrics
     eval_df, avg_eval = bmf.eval_iter(model, 
                                       params, 
@@ -287,7 +238,7 @@ vrnn_params = {'atype': 'VRNN',
               'weights_2': 3,
               'weights_3': 1}
 
-model = hyp_nest(vrnn_params, 28, 4) # 28 features, 4 behavior classes
+model = bmf.build_model_func(vrnn_params, 28, 4) # 28 features, 4 behavior classes
 
 model.summary() # looks identical to prior model as expected
 # Model: "sequential"
@@ -333,7 +284,7 @@ ende_params = {'atype': 'ENDE',
               'weights_2': 3,
               'weights_3': 1}
 
-model = hyp_nest(ende_params, 28, 4) # 28 features, 4 behavior classes
+model = bmf.build_model_func(ende_params, 28, 4) # 28 features, 4 behavior classes
 model.summary() # looks identical to prior model as expected
 # Model: "sequential_1"
 # _________________________________________________________________
