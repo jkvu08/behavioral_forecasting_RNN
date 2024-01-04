@@ -284,9 +284,13 @@ def iter_trials(space, path, seed, steps, n = 1000):
 
     """
     g = 0 # initial counter
+    if space['loss'] == True:
+        fix = 'catloss'
+    else:
+        fix = 'f1loss'
     while g < n: # which number of experiments is less than maximum experiments
     # run the experiment
-        g = run_trials(filename =  path + space['atype'] + '_' +space['mtype'] +'_' + space['predictor'] + '_' + str(seed) +'.pkl', # assign filename
+        g = run_trials(filename =  path + space['atype'] + '_' +space['mtype'] +'_' + space['predictor'] + '_'+ fix + '_' + str(seed) +'.pkl', # assign filename
                        objective = hyperoptimizer_rnn, # assign objective function for hyperopt evaluation
                        space = space, # search space
                        rstate = seed, # random seed
@@ -469,7 +473,7 @@ ende_params = {'atype': 'ENDE',
               'td_neurons': 5,
               'learning_rate': 0.001,
               'dropout_rate': 0.3,               
-              'loss': False,
+              'loss': True,
               'max_epochs': 10,
               'patience': 5,
               'batch_size': 512,
@@ -534,8 +538,8 @@ space_vrnn = {'atype'                  : 'VRNN',
               'hidden_n1'              : scope.int(hp.quniform('hidden_n1',5,50,5)),
               'learning_rate'          : 0.001,
               'dropout_rate'           : hp.quniform('dropout_rate',0.1,0.9,0.1),
-              'loss'                   : False,
-              'max_epochs'             : 50,
+              'loss'                   : True,
+              'max_epochs'             : 100,
               'patience'               : 30,
               'batch_size'             : 512,
               'weights_0'              : hp.quniform('weights_0',1,5,0.5),
@@ -577,7 +581,7 @@ run_trials(filename =  path + space_vrnn['atype'] + '_' + space_vrnn['mtype'] +'
 
 # examine hyperopt experiment results
 # load the hyperopt experiments
-trials = joblib.load(path + 'VRNN_GRU_behavior_123.pkl')
+trials = joblib.load(path + 'VRNN_GRU_behavior_catloss_123.pkl')
 # convert trial results into dataframe
 trial_df = hvf.trials_to_df(trials)
 
@@ -588,7 +592,7 @@ trial_df.columns # examine dataframe columns to get sense of data structure
 #        'weights_1', 'weights_2', 'weights_3', 'epochs', 'train_loss',
 #        'train_f1', 'train_acc', 'val_loss', 'val_f1', 'val_acc'],
 #       dtype='object')
-
+trial_df.iloc[-1,:]
 # examine the results of the last run of the hyperopt experiments  
 # atype                VRNN
 # batch_size            512
@@ -622,8 +626,8 @@ trial_df.columns # examine dataframe columns to get sense of data structure
 # visualize experiment results sequentially
 # list of metrics to visualize
 hyp_metrics = ['train_loss','val_loss',
-               'train_f1','val_acc',
-               'train_f1','val_acc',
+               'train_f1','val_f1',
+               'train_acc','val_acc',
                'epochs','lookback','dropout_rate', 'neurons_n',
                'hidden_layers','hidden_n0','hidden_n1', 
                'weights_0','weights_2','weights_3']
@@ -637,7 +641,7 @@ train_val_plots = hvf.train_val_comp(trial_df)
 train_val_plots.savefig(path+'vrnn_123_5runs_train_val_plot.jpg', dpi = 150)
 
 # plot kernal density of the hyperparameters against the validation loss
-kde_fig = hvf.kdeplots(trial_df,hyp_metrics[7:])
+kde_fig = hvf.kdeplots(trial_df,hyp_metrics[2:])
 kde_fig.savefig(path+'vrnn_123_5runs_kdeplots.jpg', dpi = 150)
 
 # plot correlation between hyperparameters and metrics
@@ -647,41 +651,116 @@ sns.heatmap(mcorr,
             yticklabels=mcorr.columns,
             cmap = 'vlag') 
 
-# use wrapper to generate dataframe of the hyperparameter trials, progression figure, 
-# train v. val performance figures, kernel density plot of hyperparameter v. validation loss 
-# and correlation plot of metrics
-trial_df = hvf.trial_correg_pdf(path = path,
-                                filename = 'VRNN_GRU_behavior_123',
-                                params = ['epochs','lookback','dropout_rate', 
-                                          'neurons_n',
-                                          'hidden_layers','hidden_n0','hidden_n1', 
-                                          'weights_0','weights_2','weights_3'], 
-                                monitor = ['train_loss','val_loss','train_f1','val_f1','train_acc','val_acc'])
-
 # run n number of trials using iteration function
 current = time.perf_counter() # keep track of time
 iter_trials(space = space_vrnn, 
             path = path,
             seed = 123, 
             steps = 5, 
-            n = 30)
+            n = 200)
 print('Took ' + str(round((time.perf_counter()-current)/60,2)) + ' mins')
+# Best validation for trial:                                                          
+# 0.24518601596355438                                                                 
+# 100%|██████████| 200/200 [13:14<00:00, 158.90s/trial, best loss: 0.3372044265270233]
+# Best: {'dropout_rate': 0.5, 'hidden_n0': 15.0, 'hidden_n1': 50.0, 'layers': 0.0, 'lookback': 23.0, 'neurons_n': 35.0, 'weights_0': 1.0, 'weights_2': 2.0, 'weights_3': 1.0}
+# max_evals: 200
+# Took 538.89 mins # on single CPU
 
-# Best validation for trial:                                                        
-# 0.4335796535015106                                                                
-# 100%|██████████| 30/30 [07:46<00:00, 93.39s/trial, best loss: 0.5664700865745544] 
-# Best: {'dropout_rate': 0.6000000000000001, 'hidden_n0': 20.0, 'hidden_n1': 50.0, 'layers': 0.0, 'lookback': 22.0, 'neurons_n0': 35.0, 'neurons_n1': 35.0, 'td_neurons': 35.0, 'weights_0': 3.5, 'weights_2': 1.0, 'weights_3': 1.0}
-# max_evals: 30
-# Took 34.84 mins
+# visualize results
+# assign values for function input 
+# paramters that were optimized
+vrnn_params = ['epochs','lookback', 'neurons_n',
+               'hidden_layers','hidden_n0','hidden_n1', 
+               'dropout_rate','weights_0','weights_2','weights_3']
 
+# loss and performance metrics 
+selection_metrics = ['train_loss','val_loss','train_f1','val_f1','train_acc','val_acc']
+
+# use wrapper to generate dataframe of the hyperparameter trials, progression figure, 
+# train v. val performance figures, kernel density plot of hyperparameter v. validation loss 
+# and correlation plot of metrics
+trial_df = hvf.trial_correg_pdf(path = path,
+                                filename = 'VRNN_GRU_behavior_catloss_123',
+                                params = vrnn_params, 
+                                monitor = selection_metrics)
+
+# run a couple more experiments since different seeds will initiate the hyperparameter search in different areas of the search space 
 current = time.perf_counter() # keep track of time
 iter_trials(space = space_vrnn, 
             path = path,
             seed = 456, 
             steps = 5, 
-            n = 30)
+            n = 200)
 print('Took ' + str(round((time.perf_counter()-current)/60,2)) + ' mins')
+# Best validation for trial:                                                           
+# 0.22358238697052002                                                                  
+# 100%|██████████| 200/200 [12:35<00:00, 151.18s/trial, best loss: 0.36849260330200195]
+# Best: {'dropout_rate': 0.6000000000000001, 'hidden_n0': 40.0, 'hidden_n1': 10.0, 'layers': 1.0, 'lookback': 21.0, 'neurons_n': 35.0, 'weights_0': 1.0, 'weights_2': 3.0, 'weights_3': 1.0}
+# max_evals: 200
+# Took 639.42 mins # on single CPU
 
+current = time.perf_counter() # keep track of time
+iter_trials(space = space_vrnn, 
+            path = path,
+            seed = 890, 
+            steps = 5, 
+            n = 200)
+print('Took ' + str(round((time.perf_counter()-current)/60,2)) + ' mins')
+# Best validation for trial:                                                          
+# 0.365492582321167                                                                   
+# 100%|██████████| 200/200 [11:55<00:00, 143.04s/trial, best loss: 0.3592835068702698]
+# Best: {'dropout_rate': 0.1, 'hidden_n0': 30.0, 'hidden_n1': 30.0, 'layers': 0.0, 'lookback': 23.0, 'neurons_n': 35.0, 'weights_0': 1.5, 'weights_2': 4.0, 'weights_3': 1.0}
+# max_evals: 200
+# Took 546.95 mins # on single CPU
+
+# get parameter summary if the multiple experiments run
+hvf.hypoutput(path = path,
+              modelname = 'VRNN_GRU_behavior_catloss', 
+              ci = 0.90,
+              params = vrnn_params,
+              burnin = 20,
+              maxval = 200)
+
+# min (losses) or median (all other parameters) values with 90% credible intervals of parameter estimate
+#               VRNN_GRU_behavior_catloss
+# train_loss             0.54 (0.59,1.76) # min
+# val_loss                0.34 (0.35,0.7) # min 
+# train_f1               0.31 (0.25,0.37) 
+# val_f1                 0.31 (0.23,0.38) 
+# train_acc               0.8 (0.71,0.83) 
+# val_acc                  0.88 (0.8,0.9)
+# epochs                     100 (23,100)
+# lookback                      19 (4,23)
+# neurons_n                     20 (5,45)
+# hidden_layers                   0 (0,2)
+# hidden_n0               20.0 (5.0,45.0)
+# hidden_n1              42.5 (50.0,50.0)
+# dropout_rate              0.3 (0.1,0.8)
+# weights_0                 1.5 (1.0,4.0)
+# weights_2                      5 (1,20)
+# weights_3                       2 (1,8)
+
+# visualize results of multiple runs
+# outputs 1) list of output dataframe of each experiment,
+# 2) merged dataframe of all experimeent outputs for a particular model with burnin removed
+# 3) summary table of params with credible intervals and rhat to assess parameter convergence
+vrnn_exp, vrnn_combined, vrnn_summary = hvf.convergence_sum(path = path,
+                                                            modelname = 'VRNN_GRU_behavior_catloss',
+                                                            params = selection_metrics + vrnn_params,
+                                                            burnin = 20, 
+                                                            maxval = 200)
+
+# visualize the results of the multiple experiments
+hvf.trial_chains_output(path = path,
+                        modelname = 'VRNN_GRU_behavior',
+                        params = vrnn_params,
+                        burnin = 20, 
+                        maxval = 200)
+
+# a few parameters still converging rhat > 1.1, may want to run longer
+# also see that most runs ran for the full 100 epochs, may want to increase the epochs
+
+# run encoder-decoder models
 # specify encoder-decoder RNN parameter space
 space_ende = {'atype'                  : 'ENDE',
               'mtype'                  : 'GRU',
@@ -690,15 +769,15 @@ space_ende = {'atype'                  : 'ENDE',
               'n_outputs'              : 1,
               'predictor'              : 'behavior',
               'hidden_layers'          : scope.int(hp.quniform('layers',0,2,1)),
-              'neurons_n0'              : scope.int(hp.quniform('neurons_n0',5,50,5)),
-              'neurons_n1'              : scope.int(hp.quniform('neurons_n1',5,50,5)),
+              'neurons_n0'             : scope.int(hp.quniform('neurons_n0',5,50,5)),
+              'neurons_n1'             : scope.int(hp.quniform('neurons_n1',5,50,5)),
               'hidden_n0'              : scope.int(hp.quniform('hidden_n0',5,50,5)),
               'hidden_n1'              : scope.int(hp.quniform('hidden_n1',5,50,5)),
               'td_neurons'             : scope.int(hp.quniform('td_neurons',5,50,5)),
               'learning_rate'          : 0.001,
               'dropout_rate'           : hp.quniform('dropout_rate',0.1,0.9,0.1),
-              'loss'                   : False,
-              'max_epochs'             : 50,
+              'loss'                   : True,
+              'max_epochs'             : 100,
               'patience'               : 30,
               'batch_size'             : 512,
               'weights_0'              : hp.quniform('weights_0',1,5,0.5),
@@ -713,15 +792,15 @@ iter_trials(space = space_ende,
             path = path,
             seed = 123, 
             steps = 5, 
-            n = 30)
+            n = 200)
 print('Took ' + str(round((time.perf_counter()-current)/60,2)) + ' mins')
 
-# Best validation for trial:                                                       
-# 0.42666730284690857                                                              
-# 100%|██████████| 30/30 [06:51<00:00, 82.31s/trial, best loss: 0.5675432682037354]
-# Best: {'dropout_rate': 0.4, 'hidden_n0': 35.0, 'hidden_n1': 30.0, 'layers': 0.0, 'lookback': 13.0, 'neurons_n0': 20.0, 'neurons_n1': 15.0, 'td_neurons': 25.0, 'weights_0': 4.5, 'weights_2': 9.0, 'weights_3': 5.0}
-# max_evals: 30
-# Took 32.51 mins
+# Best validation for trial:                                                          
+# 0.23491238057613373                                                                 
+# 100%|██████████| 200/200 [10:44<00:00, 128.98s/trial, best loss: 0.3321865200996399]
+# Best: {'dropout_rate': 0.1, 'hidden_n0': 40.0, 'hidden_n1': 50.0, 'layers': 2.0, 'lookback': 23.0, 'neurons_n0': 35.0, 'neurons_n1': 5.0, 'td_neurons': 50.0, 'weights_0': 1.0, 'weights_2': 1.0, 'weights_3': 1.0}
+# max_evals: 200
+# Took 749.29 mins # on single CPU
 
 # run using iteration function to run n number of trials
 current = time.perf_counter() # keep track of time
@@ -729,193 +808,81 @@ iter_trials(space = space_ende,
             path = path,
             seed = 456, 
             steps = 5, 
-            n = 30)
+            n = 200)
 print('Took ' + str(round((time.perf_counter()-current)/60,2)) + ' mins')
 
-# Best validation for trial:                                                        
-# 0.4335796535015106                                                                
-# 100%|██████████| 30/30 [07:46<00:00, 93.39s/trial, best loss: 0.5664700865745544] 
-# Best: {'dropout_rate': 0.6000000000000001, 'hidden_n0': 20.0, 'hidden_n1': 50.0, 'layers': 0.0, 'lookback': 22.0, 'neurons_n0': 35.0, 'neurons_n1': 35.0, 'td_neurons': 35.0, 'weights_0': 3.5, 'weights_2': 1.0, 'weights_3': 1.0}
-# max_evals: 30
-# Took 34.84 mins
+# Best validation for trial:                                                          
+# 0.30525583028793335                                                                 
+# 100%|██████████| 200/200 [11:11<00:00, 134.26s/trial, best loss: 0.3368493914604187]
+# Best: {'dropout_rate': 0.4, 'hidden_n0': 20.0, 'hidden_n1': 25.0, 'layers': 0.0, 'lookback': 23.0, 'neurons_n0': 35.0, 'neurons_n1': 25.0, 'td_neurons': 50.0, 'weights_0': 1.0, 'weights_2': 2.0, 'weights_3': 1.0}
+# max_evals: 200
+# Took 611.11 mins # on single CPU
 
 current = time.perf_counter() # keep track of time
-iter_trials(space = space_vrnn, 
+iter_trials(space = space_ende, 
             path = path,
-            seed = 456, 
+            seed = 890, 
             steps = 5, 
-            n = 25)
+            n = 200)
 print('Took ' + str(round((time.perf_counter()-current)/60,2)) + ' mins')
 
-########################################
-#### Model evaluation and selection ####
-########################################
-# hyperparamters that are being optimized
-vrnn_params = ['epochs','lookback', 'neurons_n',
-               'hidden_layers','hidden_n0','hidden_n1', 
-               'dropout_rate','weights_0','weights_2','weights_3']
+# Best validation for trial:                                                         
+# 0.35535210371017456                                                                
+# 100%|██████████| 200/200 [08:27<00:00, 101.57s/trial, best loss: 0.3579077422618866]
+# Best: {'dropout_rate': 0.1, 'hidden_n0': 10.0, 'hidden_n1': 50.0, 'layers': 1.0, 'lookback': 23.0, 'neurons_n0': 20.0, 'neurons_n1': 15.0, 'td_neurons': 30.0, 'weights_0': 2.0, 'weights_2': 1.0, 'weights_3': 1.0}
+# max_evals: 200
+# Took 500.75 mins # on single CPU
 
-selection_metrics = ['train_loss','val_loss','train_f1','val_f1','train_acc','val_acc']
-
-# output trial df and visualize results of the two runs
-vrnn_123 = hvf.trial_correg_pdf(path = path,
-                                 filename = 'VRNN_GRU_behavior_123',
-                                 params = vrnn_params, 
-                                 monitor = selection_metrics)
-
-vrnn_456 = hvf.trial_correg_pdf(path = path,
-                                 filename = 'VRNN_GRU_behavior_456',
-                                 params = vrnn_params, 
-                                 monitor = selection_metrics)
-
-# get parameter summary
-hvf.hypoutput(path = path,
-              modelname = 'VRNN_GRU_behavior', 
-              ci = 0.90,
-              params = vrnn_params,
-              burnin = 0,
-              maxval = 30)
-
-#               VRNN_GRU_behavior
-# train_loss     0.71 (0.73,1.37)
-# val_loss       0.57 (0.57,0.59)
-# train_f1       0.42 (0.33,0.44)
-# val_f1         0.42 (0.34,0.43)
-# train_acc       0.77 (0.71,0.8)
-# val_acc        0.85 (0.83,0.88)
-# epochs               50 (50,50)
-# lookback              11 (1,21)
-# dropout_rate      0.5 (0.1,0.8)
-# neurons_n             30 (5,50)
-# hidden_layers           1 (0,2)
-# hidden_n0      35.0 (10.0,50.0)
-# hidden_n1      45.0 (50.0,50.0)
-# weights_0        3.25 (1.0,5.0)
-# weights_2             12 (2,24)
-# weights_3              6 (1,10)
-
-
-vrnn_exp, vrnn_combined, vrnn_summary = hvf.convergence_sum(path = path,
-                                                            modelname = 'VRNN_GRU_behavior',
-                                                            params = selection_metrics + vrnn_params,
-                                                            burnin = 0, 
-                                                            maxval = 30)
-
-hvf.chain_plots(vrnn_exp, 'dropout_rate')
-hvf.trial_chains_output(path = path,
-                        modelname = 'VRNN_GRU_behavior',
-                        params = vrnn_params,
-                        burnin = 0, 
-                        maxval = 30)
-
-
-# hyperparamters that being optimized
+# hyperparamters being optimized
 ende_params = ['epochs','lookback','dropout_rate', 
                'neurons_n0','neurons_n1','td_neurons',
                'hidden_layers','hidden_n0','hidden_n1', 
                'weights_0','weights_2','weights_3']
 
-# output trial df and visualize results of the two runs
-ende_123 = hvf.trial_correg_pdf(path = path,
-                                 filename = 'ENDE_GRU_behavior_123',
-                                 params = ende_params, 
-                                 monitor = selection_metrics)
+# get parameter summary if the multiple experiments run
+hvf.hypoutput(path = path,
+              modelname = 'ENDE_GRU_behavior_catloss', 
+              ci = 0.90,
+              params = ende_params,
+              burnin = 20,
+              maxval = 200)
 
-ende_456 = hvf.trial_correg_pdf(path = path,
-                                 filename = 'ENDE_GRU_behavior_456',
-                                 params = ende_params, 
-                                 monitor = selection_metrics)
+# min (losses) or median (all other parameters) values with 90% credible intervals of parameter estimate
+#               ENDE_GRU_behavior_catloss
+# train_loss             0.49 (0.62,1.82) # min
+# val_loss               0.33 (0.37,0.66) # min
+# train_f1                0.3 (0.22,0.38)
+# val_f1                 0.31 (0.23,0.39)
+# train_acc               0.8 (0.71,0.83)
+# val_acc                 0.87 (0.81,0.9)
+# epochs                       67 (3,100)
+# lookback                      19 (5,23)
+# dropout_rate              0.4 (0.1,0.8)
+# neurons_n0                   35 (10,50)
+# neurons_n1                    20 (5,50)
+# td_neurons                   30 (10,50)
+# hidden_layers                   1 (0,2)
+# hidden_n0               32.5 (5.0,50.0)
+# hidden_n1              40.0 (10.0,50.0)
+# weights_0                 2.0 (1.0,4.5)
+# weights_2                      5 (1,20)
+# weights_3                       2 (1,8)
 
 ende_exp, ende_combined, ende_summary = hvf.convergence_sum(path = path,
-                                                            modelname = 'ENDE_GRU_behavior',
+                                                            modelname = 'ENDE_GRU_behavior_catloss',
                                                             params = ende_params,
-                                                            burnin = 0, 
-                                                            maxval = 30)
+                                                            burnin = 20, 
+                                                            maxval = 200)
+
+
+hvf.trial_chains_output(path = path,
+                        modelname = 'ENDE_GRU_behavior_catloss',
+                        params = ende_params,
+                        burnin = 20, 
+                        maxval = 200)
 
 
 # compare models
-modelnames= ['VRNN_GRU_behavior', 'ENDE_GRU_behavior']
-
-# create list to populate 
-rnn_list = []
-# run the hypoutput for all model types
-for mn in modelnames: 
-    if mn[0:4] == 'VRNN':
-        entry = hvf.hypoutput(path = path,
-                              modelname = mn, 
-                              ci = 0.90,
-                              params = vrnn_params,
-                              burnin = 5,
-                              maxval = 30)
-    else:
-        entry = hvf.hypoutput(path = path,
-                              modelname = mn, 
-                              ci = 0.90,
-                              params = ende_params,
-                              burnin = 5,
-                              maxval = 30)
-    rnn_list.append(entry) 
-
-modelcomp_df = pd.concat(rnn_list, axis = 1, join ='outer')
-modelcomp_df.to_csv(path + 'modelcomparison_30runs_ci90.csv')
-
-################################
-#### Predictive performance ####
-################################
-# get summary statistics for each model type
-# concatenate experiments for a particular model together
-vrnn_df = pd.concat([vrnn_123,vrnn_456], axis=0) 
-ende_df = pd.concat([ende_123,ende_456], axis=0) 
-
-# calculate summary functions
-vrnn_behavior_sum = hvf.sum_function(df = vrnn_df[selection_metrics], 
-                                     filename = 'vrnn_behavior_30runs', 
-                                     path = path)
-
-# view data to get sense of output
-vrnn_behavior_sum.columns
-# Index(['model', 'mean', 'sd', 'median', 'mad', 'lci95', 'uci95', 'lci90',
-#        'uci90', 'lci80', 'uci80', 'lci50', 'uci50'],
-#       dtype='object')
-
-vrnn_behavior_sum.iloc[0,:]
-# model     vrnn_behavior_30runs
-# mean                  1.031898
-# sd                     0.19613
-# median                0.997207
-# mad                   0.164722
-# lci95                 0.728355
-# uci95                 1.430349
-# lci90                 0.772152
-# uci90                 1.369691
-# lci80                 0.796362
-# uci80                 1.345614
-# lci50                 0.869758
-# uci50                  1.19639
-# Name: train_loss, dtype: object
-
-# calculate summary functions
-ende_behavior_sum = hvf.sum_function(ende_df[selection_metrics], 'ende_behavior_30runs', path)
-
-# view data to get sense of output
-# ende_behavior_sum.iloc[0,:]
-# model     ende_behavior_30runs
-# mean                  0.964753
-# sd                    0.193616
-# median                0.957458
-# mad                   0.154591
-# lci95                  0.67004
-# uci95                 1.346113
-# lci90                 0.673511
-# uci90                  1.28895
-# lci80                 0.704848
-# uci80                 1.242567
-# lci50                 0.825524
-# uci50                  1.11884
-# Name: train_loss, dtype: object
-
-# put cross model comparisons into single file 
-cross_comp = pd.concat([vrnn_behavior_sum,ende_behavior_sum],axis = 0)
 
 # modelnames= ['vrnn_f1_GRU_behavior', 'vrnn_f1_GRU_full','vrnn_f1_GRU_extrinsic',
 #             'vrnn_f1_LSTM_behavior', 'vrnn_f1_LSTM_full','vrnn_f1_LSTM_extrinsic',
@@ -947,3 +914,146 @@ cross_comp = pd.concat([vrnn_behavior_sum,ende_behavior_sum],axis = 0)
 #     trial_df = trial_to_df(file)  # convert to dataframe
 #     print(trial_df.shape)
 #     trials.append(trial_df)
+
+modelnames= ['VRNN_GRU_behavior_catloss', 'ENDE_GRU_behavior_catloss']
+
+# create list to populate 
+rnn_list = []
+# run the hypoutput for all model types
+for mn in modelnames: 
+    if mn[0:4] == 'VRNN':
+        hvf.trial_chains_output(path = path,
+                        modelname = mn,
+                        params = vrnn_params,
+                        burnin = 20, 
+                        maxval = 200)
+        entry = hvf.hypoutput(path = path,
+                              modelname = mn, 
+                              ci = 0.90,
+                              params = vrnn_params,
+                              burnin = 20,
+                              maxval = 200)
+    else:
+        hvf.trial_chains_output(path = path,
+                        modelname = mn,
+                        params = ende_params,
+                        burnin = 20, 
+                        maxval = 200)
+        entry = hvf.hypoutput(path = path,
+                              modelname = mn, 
+                              ci = 0.90,
+                              params = ende_params,
+                              burnin = 20,
+                              maxval = 200)
+    rnn_list.append(entry) 
+
+# put in single dataframe
+modelcomp_df = pd.concat(rnn_list, axis = 1, join ='outer')
+# save comparision file
+modelcomp_df.to_csv(path + 'modelcomparison_200runs_ci90.csv')
+modelcomp_df # view output 
+#              VRNN_GRU_behavior_catloss ENDE_GRU_behavior_catloss
+# train_loss             0.54 (0.66,1.87)          0.49 (0.62,1.82)
+# val_loss               0.34 (0.38,0.71)          0.33 (0.37,0.66)
+# train_f1               0.31 (0.23,0.36)           0.3 (0.22,0.38)
+# val_f1                 0.29 (0.23,0.37)          0.31 (0.23,0.39)
+# train_acc               0.8 (0.72,0.83)           0.8 (0.71,0.83)
+# val_acc                 0.88 (0.81,0.9)           0.87 (0.81,0.9)
+# epochs                     100 (14,100)                67 (3,100)
+# lookback                      18 (5,23)                 19 (5,23)
+# neurons_n                     30 (5,50)                       NaN
+# hidden_layers                   1 (0,2)                   1 (0,2)
+# hidden_n0              40.0 (10.0,50.0)           32.5 (5.0,50.0)
+# hidden_n1               25.0 (5.0,50.0)          40.0 (10.0,50.0)
+# dropout_rate              0.4 (0.1,0.8)             0.4 (0.1,0.8)
+# weights_0                 1.5 (1.0,4.0)             2.0 (1.0,4.5)
+# weights_2                      6 (1,20)                  5 (1,20)
+# weights_3                       2 (1,8)                   2 (1,8)
+# neurons_n0                          NaN                35 (10,50)
+# neurons_n1                          NaN                 20 (5,50)
+# td_neurons                          NaN                30 (10,50)
+
+# validation loss and performance metrices similar between vanilla RNN and encoder-decoder model
+# added complexity of the encoder-decoder model doesn't seem to be adding much, so go with the vanilla RNN
+# multiple ways to select which parameters to use depending on purpose
+# predictive can use the best performing model based on val_f1 or val_acc or val_loss
+trial_best_f1 = vrnn_combined[vrnn_combined['val_f1'] == vrnn_combined['val_f1'].max()]
+trial_best_f1.transpose()
+# trial_index          431
+# train_loss      1.394470
+# val_loss        0.510997
+# train_f1        0.400432
+# val_f1          0.419750
+# train_acc       0.802971
+# val_acc         0.881183
+# epochs         32.000000
+# lookback       22.000000
+# neurons_n      35.000000
+# hidden_layers   1.000000
+# hidden_n0      50.000000
+# hidden_n1            NaN
+# dropout_rate    0.100000
+# weights_0       2.500000
+# weights_2       9.000000
+# weights_3       5.000000
+
+trial_best_acc = vrnn_combined[vrnn_combined['val_acc'] == vrnn_combined['val_acc'].max()]
+trial_best_acc.transpose()
+# train_index           179
+# train_loss       0.542504
+# val_loss         0.337204
+# train_f1         0.296082
+# val_f1           0.245186
+# train_acc        0.836270
+# val_acc          0.906462
+# epochs         100.000000
+# lookback        23.000000
+# neurons_n       35.000000
+# hidden_layers    0.000000
+# hidden_n0             NaN
+# hidden_n1             NaN
+# dropout_rate     0.500000
+# weights_0        1.000000
+# weights_2        2.000000
+# weights_3        1.000000
+
+
+trial_best_loss = vrnn_combined[vrnn_combined['val_loss'] == vrnn_combined['val_loss'].min()]
+trial_best_loss.transpose()
+# trial_index           179 # makes sense that this is the same as the best val_acc
+# train_loss       0.542504
+# val_loss         0.337204
+# train_f1         0.296082
+# val_f1           0.245186
+# train_acc        0.836270
+# val_acc          0.906462
+# epochs         100.000000
+# lookback        23.000000
+# neurons_n       35.000000
+# hidden_layers    0.000000
+# hidden_n0             NaN
+# hidden_n1             NaN
+# dropout_rate     0.500000
+# weights_0        1.000000
+# weights_2        2.000000
+# weights_3        1.000000
+
+# explanatory use median values of parameter/hyperparameters 
+vrnn_summary['median']
+# train_loss         1.103642
+# val_loss           0.498165
+# train_f1           0.306103
+# val_f1             0.294980
+# train_acc          0.796751
+# val_acc            0.875082
+# epochs           100.000000
+# lookback          18.000000
+# neurons_n         30.000000
+# hidden_layers      1.000000
+# hidden_n0         40.000000
+# hidden_n1         25.000000
+# dropout_rate       0.400000
+# weights_0          1.500000
+# weights_2          6.000000
+# weights_3          2.000000
+# Name: median, dtype: float64

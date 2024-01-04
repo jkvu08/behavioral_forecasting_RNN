@@ -122,7 +122,10 @@ def hyperopt_progress(df, metrics):
     # for each metric
     for metric in metrics:
         plt.subplot(nrow,2,counter) # use counter as the subplot index
-        plt.plot(df.index, df[metric], label = metric) # plot the metric by the index
+        if metric in ['hidden_n0','hidden_n1']:
+            plt.plot(df.index, df[metric], marker='.', markersize = 3, label = metric) # plot the metric by the index
+        else:
+            plt.plot(df.index, df[metric], label = metric) # plot the metric by the index
         plt.ylabel(metric) # label the metric 
         counter +=1 # increase the counter
     fig.supxlabel('runs') # add x axis label
@@ -390,8 +393,10 @@ def hypoutput(path, modelname, params, ci = 0.90, burnin=200, maxval=1000):
     metrics = ['train_f1','val_f1','train_acc','val_acc'] + params
     colnames = loss + metrics
     dflist = [] # empty list for dataframes to combine of hyperopt outputs
-    for file in glob.glob(path + modelname + '*_results.csv'): # load all the hyperopt trials using the list of filenames
-        trial_df =  read_csv(file, header =0, index_col = 0) # transform each file into a dataframe
+    for file in glob.glob(path + modelname + '*.pkl'): # load all the hyperopt trials using the list of filenames
+        trials = joblib.load(file) # load hyperopt trial file
+        trial_df = trials_to_df(trials) # convert hyperopt experiment results to a dataframe
+        trial_df.to_csv(file[:-4]+'_results.csv')
         trial_df = trial_df.iloc[burnin:maxval,:] # subset experiments based on burn-in and max value
         dflist.append(trial_df) # add to the list of dataframes
     trial_df = pd.concat(dflist) # concatenate all dataframes
@@ -598,7 +603,6 @@ def chain_plots(trials, metric, ax = None):
               '#999999', '#e41a1c', '#dede00']
     for i in range(len(trials)):    
         sns.lineplot(ax = ax, data = trials[i], x = trials[i].index, y = metric, alpha = 0.5, color = colors[i])
-   # return ax
 
 def hist_plots(trials, metric, ax = None):
     """
@@ -623,7 +627,6 @@ def hist_plots(trials, metric, ax = None):
               '#999999', '#e41a1c', '#dede00']
     for i in range(len(trials)):   
         sns.histplot(ax = ax, data = trials[i],x = metric, bins = 20, alpha =0.5, color = colors[i])
-   # return ax
 
 def kde_plots(trials, metric, ax= None):
     """
@@ -648,7 +651,6 @@ def kde_plots(trials, metric, ax= None):
               '#999999', '#e41a1c', '#dede00']
     for i in range(len(trials)):  
         sns.kdeplot(ax = ax, data = trials[i], x = metric, y = 'val_loss', shade = True, legend = False, color = colors[i], alpha =0.5)
-    #return ax
     
 def loss_plots(trials):
     """
@@ -722,8 +724,10 @@ def trial_chains_output(modelname, path, params, monitor = ['train_loss','val_lo
     None
 
     """
-    metrics = monitor + params
+    metrics = monitor + params 
+    # identify the float metrics for rounding later 
     float_met = ['train_loss','val_loss','train_f1','val_f1','train_acc','val_acc','dropout_rate','weights_0']
+    # get experiment outputs as list and dataframe, and summary table
     trials, combined_df, summary_df = convergence_sum(modelname = modelname, 
                                                       path = path,
                                                       params = metrics, 
@@ -737,24 +741,27 @@ def trial_chains_output(modelname, path, params, monitor = ['train_loss','val_lo
     # format credible interval table
     ci_tab = summary_df[['median','mad','lci95','uci95','lci90','uci90','lci80','uci80','lci50','uci50']]
     
-    with PdfPages(path + modelname +'_multichain_results.pdf') as pdf:       
+    with PdfPages(path + modelname +'_multichain_results.pdf') as pdf:
+        # generate loss plots
         lossplots = loss_plots(trials)
         pdf.savefig(lossplots) # save figure
         plt.close() # close page
         
+        # generate parameter progression plots
         paramplots = parameter_plots(trials,params)
         pdf.savefig(paramplots) # save figure
         plt.close() # close page
         
         # generate subplots to organize table data 
         fig, ax = plt.subplots(3,1, sharex = False, sharey = False, figsize=(10,12))
+        # add train v validation loss plot
         sns.regplot(ax = ax[0], 
                     data = combined_df, 
                     x = 'train_loss', 
                     y = 'val_loss', 
                     fit_reg = True,
                     color = 'orange')
-  
+        # add summary table 
         ax[1].table(cellText = sum_tab.values,
                     colLabels = sum_tab.columns, 
                     rowLabels = sum_tab.index,
@@ -762,6 +769,7 @@ def trial_chains_output(modelname, path, params, monitor = ['train_loss','val_lo
         ax[1].axis('tight') 
         ax[1].axis('off')
         
+        # add the credible interval table
         ax[2].table(cellText = ci_tab.values,
                     colLabels = ci_tab.columns, 
                     rowLabels = ci_tab.index,
@@ -771,30 +779,7 @@ def trial_chains_output(modelname, path, params, monitor = ['train_loss','val_lo
         pdf.savefig() # save figure
         plt.close() # close page
         
-# trial_chains_output('ende_f1_LSTM_full', metrics_ende, 200)
-# trial_chains_output('vrnn_f1_GRU_behavior', metrics_vrnn, 200)      
         
-# modelnames= ['vrnn_f1_GRU_behavior', 'vrnn_f1_GRU_full','vrnn_f1_GRU_extrinsic',
-#             'vrnn_f1_LSTM_behavior', 'vrnn_f1_LSTM_full','vrnn_f1_LSTM_extrinsic',
-#             'ende_f1_GRU_behavior', 'ende_f1_GRU_full','ende_f1_GRU_extrinsic',
-#             'ende_f1_LSTM_behavior', 'ende_f1_LSTM_full','ende_f1_LSTM_extrinsic',
-#             ]
-
-# for mn in modelnames:
-#     if mn[:4] == 'vrnn':
-#         metrics = ['drate','weights_0','weights_2',
-#            'weights_3','lookback','epochs','neurons_n','hidden_layers','hidden_n0']
-#     else:
-#         metrics = ['drate','weights_0','weights_2','weights_3','lookback','epochs','neurons_n0','neurons_n1',
-#            'hidden_layers','hidden_n0','td_neurons']
-#     trial_chains_output(mn, metrics, 200)
-
-# modelnames= ['vrnn_f1_GRU_behavior', 'vrnn_f1_GRU_full','vrnn_f1_GRU_extrinsic',
-#             'vrnn_f1_LSTM_behavior', 'vrnn_f1_LSTM_full','vrnn_f1_LSTM_extrinsic',
-#             'ende_f1_GRU_behavior', 'ende_f1_GRU_full','ende_f1_GRU_extrinsic',
-#             'ende_f1_LSTM_behavior', 'ende_f1_LSTM_full','ende_f1_LSTM_extrinsic',
-#             ]
-
 # trials, trial_df, summary_df = convergence_sum('vrnn_GRU_behavior', ['val_loss','train_loss','drate','weights_0','weights_2',
 #            'weights_3','lookback','neurons_n','hidden_layers','hidden_n0','epochs'],200,1000)
 
