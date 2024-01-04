@@ -577,7 +577,7 @@ def convergence_sum(modelname, path, params, burnin = 200, maxval = 1000):
 
 def chain_plots(trials, metric, ax = None):
     """
-    Overlay of time series of each hyperopt experiment    
+    Overlay of the progression of a particular matric throughour the hyperopt experiments
     
     Parameters
     ----------
@@ -590,28 +590,80 @@ def chain_plots(trials, metric, ax = None):
 
     Returns
     -------
-    ax : TYPE
-        DESCRIPTION.
+    None
 
     """
-    colors = ['coral','cyan','goldenrod']
+    colors = ['#377eb8', '#ff7f00', '#4daf4a',
+              '#f781bf', '#a65628', '#984ea3',
+              '#999999', '#e41a1c', '#dede00']
     for i in range(len(trials)):    
-        sns.lineplot(ax = ax, data = trials[i],x = trials[i].index, y = metric, alpha =0.5, color = colors[i])
-    return ax
+        sns.lineplot(ax = ax, data = trials[i], x = trials[i].index, y = metric, alpha = 0.5, color = colors[i])
+   # return ax
 
-def hist_plots(trials, metric,ax = None):
-    colors = ['coral','cyan','goldenrod']
+def hist_plots(trials, metric, ax = None):
+    """
+    Overlay of the histograms of a particular metric from the hyperopt experiments
+    
+    Parameters
+    ----------
+    trials : list,
+        hyperopt experiment output dataframes subset by burnin and maxeval
+    metric : str,
+        parameter/metric to monitor
+    ax : list, optional
+        subplot location. The default is None.
+
+    Returns
+    -------
+    None
+
+    """
+    colors = ['#377eb8', '#ff7f00', '#4daf4a',
+              '#f781bf', '#a65628', '#984ea3',
+              '#999999', '#e41a1c', '#dede00']
     for i in range(len(trials)):   
         sns.histplot(ax = ax, data = trials[i],x = metric, bins = 20, alpha =0.5, color = colors[i])
-    return ax
+   # return ax
 
 def kde_plots(trials, metric, ax= None):
-    colors = ['coral','cyan','goldenrod']
+    """
+    Overlay of kernel density distribution of a particular metric against validation loss from the hyperopt experiments
+    
+    Parameters
+    ----------
+    trials : list,
+        hyperopt experiment output dataframes subset by burnin and maxeval
+    metric : str,
+        parameter/metric to monitor
+    ax : list, optional
+        subplot location. The default is None.
+
+    Returns
+    -------
+    None
+
+    """
+    colors = ['#377eb8', '#ff7f00', '#4daf4a',
+              '#f781bf', '#a65628', '#984ea3',
+              '#999999', '#e41a1c', '#dede00']
     for i in range(len(trials)):  
         sns.kdeplot(ax = ax, data = trials[i], x = metric, y = 'val_loss', shade = True, legend = False, color = colors[i], alpha =0.5)
-    return ax
+    #return ax
     
 def loss_plots(trials):
+    """
+    Visualization of loss in hyperopt experiments
+    
+    Parameters
+    ----------
+    trials : list,
+        hyperopt experiment output dataframes subset by burnin and maxeval
+    
+    Returns
+    -------
+    fig : overlayed progression and histogram of the losses
+
+    """
     #n = int(combo_df.shape[0]/3)
     fig, ax = plt.subplots(2,2,gridspec_kw={'width_ratios': [2, 1]}, figsize = [10,3])
     chain_plots(trials, 'val_loss', ax[0,0])
@@ -622,6 +674,21 @@ def loss_plots(trials):
     return fig
 
 def parameter_plots(trials, metrics):
+    """
+    Visualization of parameters in hyperopt experiments
+    
+    Parameters
+    ----------
+    trials : list,
+        hyperopt experiment output dataframes subset by burnin and maxeval
+    metrics : list,
+        list of parameters/metrics to monitor
+
+    Returns
+    -------
+    fig : overlayed progression, histogram, and kernel density plots of the parameters
+
+    """
     fig, ax = plt.subplots(len(metrics),3, gridspec_kw={'width_ratios': [2, 1, 1]},figsize = (10,12))
     for i in range(len(metrics)):
         chain_plots(trials, metrics[i], ax[i,0])
@@ -629,35 +696,76 @@ def parameter_plots(trials, metrics):
         kde_plots(trials, metrics[i], ax[i,2])
     fig.tight_layout()
     return fig
-
-def trial_chains_output(prefix, metrics, burnin = 0):
-    trials, combo_df, summary_df = convergence_sum(prefix, ['val_loss','train_loss']+metrics, burnin = burnin, maxval = 2000)
-    summary_df.loc[['val_loss','train_loss','drate'],:] = round(summary_df.loc[['val_loss','train_loss','drate'],:],2)
-    summary_df.loc[:,['mean','sd','median','mad','rhat']] = round(summary_df.loc[:,['mean','sd','median','mad','rhat']],2)
-    sum_tab = summary_df[['mean','sd','median','mad','lci95','uci95','rhat']]
-    ci_tab = summary_df[['median','mad','lci95','uci95','lci90','uci90','lci80','uci80','lci50','uci50']]
-   # trainval_plot = sns.regplot(combo_df['train_loss'], combo_df['val_loss'], fit_reg = True,color = 'orange') # plot the relationship between val loss and train loss
-  #  lossplots = loss_plots(trials)
-  #  paramplots = parameter_plots(trials,metrics)
     
-    with PdfPages(path+prefix+'_multichain_results.pdf') as pdf:       
+# start annotating here 
+def trial_chains_output(modelname, path, params, monitor = ['train_loss','val_loss','train_f1','val_f1','train_acc','val_acc'], burnin = 200, maxval = 1000):
+    """
+    Wrapper to generate summary statistics, visualize outputs from hyperopt experiments and output to a pdf.
+    
+    Parameters
+    ----------
+    modelname : str, 
+        model filename prefix
+    path : str,
+        directory where hyperopt files are saved
+    params : list, 
+        parameters/hyperparameters to evaluate
+    monitor : list, optional
+        Loss and performance metrics. The default is ['train_loss','val_loss','train_f1','val_f1','train_acc','val_acc'].
+    burnin : int, 
+        number of initial experiments to discard. Dafault is 200.
+    maxval : int, 
+        maximum number of experiments to compare. Default is 1000.
+
+    Returns
+    -------
+    None
+
+    """
+    metrics = monitor + params
+    float_met = ['train_loss','val_loss','train_f1','val_f1','train_acc','val_acc','dropout_rate','weights_0']
+    trials, combined_df, summary_df = convergence_sum(modelname = modelname, 
+                                                      path = path,
+                                                      params = metrics, 
+                                                      burnin = burnin, 
+                                                      maxval = maxval)
+    # round float metrics
+    summary_df.loc[summary_df.index.isin(float_met),:] = round(summary_df.loc[summary_df.index.isin(float_met),:],2) 
+    summary_df.loc[:,['mean','sd','median','mad','rhat']] = round(summary_df.loc[:,['mean','sd','median','mad','rhat']],2)
+    # format summary table 
+    sum_tab = summary_df[['mean','sd','median','mad','lci95','uci95','rhat']]
+    # format credible interval table
+    ci_tab = summary_df[['median','mad','lci95','uci95','lci90','uci90','lci80','uci80','lci50','uci50']]
+    
+    with PdfPages(path + modelname +'_multichain_results.pdf') as pdf:       
         lossplots = loss_plots(trials)
         pdf.savefig(lossplots) # save figure
         plt.close() # close page
         
-        paramplots = parameter_plots(trials,metrics)
+        paramplots = parameter_plots(trials,params)
         pdf.savefig(paramplots) # save figure
         plt.close() # close page
         
         # generate subplots to organize table data 
         fig, ax = plt.subplots(3,1, sharex = False, sharey = False, figsize=(10,12))
-        sns.regplot(ax =ax[0], data = combo_df, x = 'train_loss', y = 'val_loss', fit_reg = True,color = 'orange')
+        sns.regplot(ax = ax[0], 
+                    data = combined_df, 
+                    x = 'train_loss', 
+                    y = 'val_loss', 
+                    fit_reg = True,
+                    color = 'orange')
   
-        ax[1].table(cellText=sum_tab.values,colLabels = sum_tab.columns, rowLabels=sum_tab.index,loc='center')
+        ax[1].table(cellText = sum_tab.values,
+                    colLabels = sum_tab.columns, 
+                    rowLabels = sum_tab.index,
+                    loc = 'center')
         ax[1].axis('tight') 
         ax[1].axis('off')
         
-        ax[2].table(cellText=ci_tab.values,colLabels = ci_tab.columns, rowLabels=ci_tab.index,loc='center')
+        ax[2].table(cellText = ci_tab.values,
+                    colLabels = ci_tab.columns, 
+                    rowLabels = ci_tab.index,
+                    loc = 'center')
         ax[2].axis('tight') 
         ax[2].axis('off')
         pdf.savefig() # save figure

@@ -801,6 +801,14 @@ vrnn_exp, vrnn_combined, vrnn_summary = hvf.convergence_sum(path = path,
                                                             burnin = 0, 
                                                             maxval = 30)
 
+hvf.chain_plots(vrnn_exp, 'dropout_rate')
+hvf.trial_chains_output(path = path,
+                        modelname = 'VRNN_GRU_behavior',
+                        params = vrnn_params,
+                        burnin = 0, 
+                        maxval = 30)
+
+
 # hyperparamters that being optimized
 ende_params = ['epochs','lookback','dropout_rate', 
                'neurons_n0','neurons_n1','td_neurons',
@@ -818,11 +826,12 @@ ende_456 = hvf.trial_correg_pdf(path = path,
                                  params = ende_params, 
                                  monitor = selection_metrics)
 
-ende_sum_rhat = hvf.convergence_sum(path = path,
-                                    modelname = 'ENDE_GRU_behavior',
-                                    params = ende_params,
-                                    burnin = 0, 
-                                    maxval = 30)
+ende_exp, ende_combined, ende_summary = hvf.convergence_sum(path = path,
+                                                            modelname = 'ENDE_GRU_behavior',
+                                                            params = ende_params,
+                                                            burnin = 0, 
+                                                            maxval = 30)
+
 
 # compare models
 modelnames= ['VRNN_GRU_behavior', 'ENDE_GRU_behavior']
