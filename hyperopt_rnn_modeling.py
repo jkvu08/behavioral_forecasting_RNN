@@ -8,47 +8,15 @@ Objective of the model is to predict the multiclass (4) behavior of wild lemurs 
 @author: Jannet
 """
 import numpy as np
-from numpy import random, newaxis
-from matplotlib import pyplot as plt
-from matplotlib.backends.backend_pdf import PdfPages
+from numpy import newaxis
 import pandas as pd
-from pandas import read_csv, DataFrame, concat, Series, merge
-from sklearn.metrics import confusion_matrix, classification_report, ConfusionMatrixDisplay, mean_squared_error, f1_score
-from sklearn.model_selection import StratifiedKFold, cross_val_score
-from sklearn.utils import class_weight
-from sklearn.preprocessing import LabelEncoder
-import os, time, itertools, random, logging
+from pandas import read_csv
+import os, time
 os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
-import tensorflow as tf
 from hyperopt import hp,fmin,tpe,STATUS_OK,Trials
 from hyperopt.pyll.base import scope
-from keras.callbacks import Callback
-import keras.backend as K
-from hyperopt.early_stop import no_progress_loss
-#import threading
-#from threading import Thread
-#import concurrent.futures
-#from numba import cuda
-import pickle
 import joblib
 import seaborn as sns
-import ray
-import tensorflow as tf
-import keras
-from tensorflow.keras.layers import Dense, Dropout, LSTM, Masking, GRU, Conv1D, Activation, RepeatVector, TimeDistributed, Flatten, MaxPooling1D, ConvLSTM2D
-from tensorflow.keras.metrics import CategoricalAccuracy, Accuracy, Precision, Recall, AUC
-#from tensorflow.keras.preprocessing import sequence
-from tensorflow.keras.optimizers import Adam
-from tensorflow.keras.models import Sequential, Model
-from tensorflow_addons.metrics import F1Score
-#from tensorflow.keras.utils import to_categorical
-# import CategoricalAccuracy, CategoricalCrossentropy
-from tensorflow.compat.v1.keras.layers import CuDNNLSTM, CuDNNGRU
-from tensorflow.keras.wrappers.scikit_learn import KerasClassifier
-from tensorflow.keras.callbacks import EarlyStopping
-from keras.callbacks import Callback
-import keras.backend as K
-from tensorflow.compat.v1 import ConfigProto, InteractiveSession, Session
 
 ######################
 #### Data Import #####
@@ -874,7 +842,6 @@ ende_exp, ende_combined, ende_summary = hvf.convergence_sum(path = path,
                                                             burnin = 20, 
                                                             maxval = 200)
 
-
 hvf.trial_chains_output(path = path,
                         modelname = 'ENDE_GRU_behavior_catloss',
                         params = ende_params,
@@ -883,38 +850,6 @@ hvf.trial_chains_output(path = path,
 
 
 # compare models
-
-# modelnames= ['vrnn_f1_GRU_behavior', 'vrnn_f1_GRU_full','vrnn_f1_GRU_extrinsic',
-#             'vrnn_f1_LSTM_behavior', 'vrnn_f1_LSTM_full','vrnn_f1_LSTM_extrinsic',
-#             'ende_f1_GRU_behavior', 'ende_f1_GRU_full','ende_f1_GRU_extrinsic',
-#             'ende_f1_LSTM_behavior', 'ende_f1_LSTM_full','ende_f1_LSTM_extrinsic',
-#             ]
-
-#markov_df = read_csv('model_comparison_behavior21_markov.csv', header = 0, index_col = 0)
-#actdist_df = read_csv('model_comparison_behavior21_actdist.csv', header = 0, index_col = 0)
-
-# a = sum_function(markov_df.iloc[:,2:], 'markov21_behavior_compcheck')
-# b = sum_function(actdist_df.iloc[:,2:], 'actdist21_behavior_compcheck')
-# df_tabs = [markov_df, actdist_df]
-# df_tabs = [act_dist21, act_dist23, markov21, markov23, rnn_median21, rnn_median21_binom, rnn_best23, rnn_best23_binom]
-# filename = ['markov21_check','act_dist21_check']
-
-# filename = ['act_dist21', 'act_dist23', 'markov21', 'markov23', 'rnn_median21', 'rnn_median21_binom', 'rnn_best23', 'rnn_best23_binom']
-# empty_list = []
-# for i in range(len(df_tabs)):
-#     a = sum_function(df_tabs[i].iloc[:,2:], filename[i])
-#     empty_list.append(a)
-
-# cross_comp_tab = pd.concat(empty_list)    
-# cross_comp_tab.to_csv('cross_comparison_behavior_ci_markov_act_21.csv')
-# trials = []
-# for file in glob.glob('ende_GRU_extrinsic_56924' +'*.pkl'): # for files with this prefix
-#     print(file)    
-#     file = joblib.load(file) # load each file 
-#     trial_df = trial_to_df(file)  # convert to dataframe
-#     print(trial_df.shape)
-#     trials.append(trial_df)
-
 modelnames= ['VRNN_GRU_behavior_catloss', 'ENDE_GRU_behavior_catloss']
 
 # create list to populate 
