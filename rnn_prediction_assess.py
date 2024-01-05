@@ -54,10 +54,12 @@ test = test[['ID', 'TID', 'track_position', 'track_length', 'focal', 'year', # i
                    'adults', 'infants', 'juveniles', # external/group features
                    'individual_continuity', 'length', 'position']] # sampling features 
 
-# load parameters 
+# load parameters
 vrnn_params = {'atype': 'VRNN',
               'mtype': 'GRU',
               'lookback': 22, 
+              'n_outputs': 1,
+              'predictor':'behavior',
               'hidden_layers': 1,
               'neurons_n': 20,
               'hidden_n0': 50,
@@ -76,90 +78,97 @@ results = bmf.model_assess(train = train,
                            test = test,
                            params = vrnn_params)
 
- Model assessment
-def model_assess(params): 
-    """
-    Assess a single model
-    
-    Arguments:
-        params: hyperparameter set
-	Returns:
-        'model': model
-        'history': fitted model results
-        'confusion_matrix': confusion matrix
-        'report': classification report
-        'predictions': the deterministic features for the prediction timestep
-        'train_X': training features
-        'train_y': training targets
-        'test_X': testing features
-        'test_y': testing targets
-        'y_label': testing labeled values
-        
-	"""
-    start_time = time.time()
-    # assign number of features, targets and class weights
-    X, y, dft = to_supervised(datasub.iloc[:,[0,2,3,1,5]],rano_clim.loc[:,params['covariates']],kian_clim.loc[:,params['covariates']],params['lookback'], params['lag'],'fruit')   
-    # split dataset
-    train_X, test_X, y_train, y_test, train_dft, test_dft = train_test_split(np.array(X), np.array(y), np.array(dft), test_size=DATA_SPLIT_PCT, random_state=params['seed'],stratify =np.array(y))
+# each a sense of output 
+results.keys()
+# dict_keys(['model', 'history', 'confusion_matrix', 
+#            'report', 'predictions', 'train_X', 
+#            'train_y', 'test_X', 'test_y', 
+#            'y_pred', 'y_prob', 'evals', 'params'])
 
-    if params['hs'] == 'hidden':
-        model = build_hrnn(params)
-    #    model.summary()
-    elif params['hs'] == 'stacked':
-        model = build_srnn(params)
-       # model.summary()
-    else:
-        print('architecture not satisfied')
-        exit()
+# Model assessment
+# def model_assess(params): 
+#     """
+#     Assess a single model
     
-    results = model.fit(train_X, y_train, 
-                       epochs = int(params['epochs']), 
-                       batch_size = int(params['batch']),
-                       verbose = 2,
-                       shuffle=False)
+#     Arguments:
+#         params: hyperparameter set
+# 	Returns:
+#         'model': model
+#         'history': fitted model results
+#         'confusion_matrix': confusion matrix
+#         'report': classification report
+#         'predictions': the deterministic features for the prediction timestep
+#         'train_X': training features
+#         'train_y': training targets
+#         'test_X': testing features
+#         'test_y': testing targets
+#         'y_label': testing labeled values
+        
+# 	"""
+#     start_time = time.time()
+#     # assign number of features, targets and class weights
+#     X, y, dft = to_supervised(datasub.iloc[:,[0,2,3,1,5]],rano_clim.loc[:,params['covariates']],kian_clim.loc[:,params['covariates']],params['lookback'], params['lag'],'fruit')   
+#     # split dataset
+#     train_X, test_X, y_train, y_test, train_dft, test_dft = train_test_split(np.array(X), np.array(y), np.array(dft), test_size=DATA_SPLIT_PCT, random_state=params['seed'],stratify =np.array(y))
+
+#     if params['hs'] == 'hidden':
+#         model = build_hrnn(params)
+#     #    model.summary()
+#     elif params['hs'] == 'stacked':
+#         model = build_srnn(params)
+#        # model.summary()
+#     else:
+#         print('architecture not satisfied')
+#         exit()
     
-    y_prob = model.predict(test_X)
-    y_pred = np.random.binomial(1, y_prob)
-    loss = log_loss(y_test, y_prob)
-    cm = confusion_matrix(y_test,y_pred) # generate confusion matrix
-    class_rep = class_report(y_test,y_pred) # generate classification reports
-    pr_auc = average_precision_score(y_test, y_prob)
-    roc_auc = roc_auc_score(y_test, y_prob)
+#     results = model.fit(train_X, y_train, 
+#                        epochs = int(params['epochs']), 
+#                        batch_size = int(params['batch']),
+#                        verbose = 2,
+#                        shuffle=False)
     
-    fig, axis = plt.subplots(1,4,figsize=(18,4))
-    plt.subplot(1,4,1)
-    confusion_mat(y_test,y_pred, LABELS = LABELS, normalize = 'true')
-    plt.subplot(1,4,2)
-    confusion_mat(y_test,y_pred, LABELS = LABELS, normalize = None)
-    plt.subplot(1, 4, 3) 
-    roc_plot(y_test, y_prob) # roc curve
-    plt.subplot(1, 4, 4)  
-    pr_plot(y_test, y_prob) # precision recall curve
-    plt.show()
-    fig.tight_layout() 
+#     y_prob = model.predict(test_X)
+#     y_pred = np.random.binomial(1, y_prob)
+#     loss = log_loss(y_test, y_prob)
+#     cm = confusion_matrix(y_test,y_pred) # generate confusion matrix
+#     class_rep = class_report(y_test,y_pred) # generate classification reports
+#     pr_auc = average_precision_score(y_test, y_prob)
+#     roc_auc = roc_auc_score(y_test, y_prob)
     
-    class_rep = class_report(y_test,y_pred) # generate classification report
+#     fig, axis = plt.subplots(1,4,figsize=(18,4))
+#     plt.subplot(1,4,1)
+#     confusion_mat(y_test,y_pred, LABELS = LABELS, normalize = 'true')
+#     plt.subplot(1,4,2)
+#     confusion_mat(y_test,y_pred, LABELS = LABELS, normalize = None)
+#     plt.subplot(1, 4, 3) 
+#     roc_plot(y_test, y_prob) # roc curve
+#     plt.subplot(1, 4, 4)  
+#     pr_plot(y_test, y_prob) # precision recall curve
+#     plt.show()
+#     fig.tight_layout() 
+    
+#     class_rep = class_report(y_test,y_pred) # generate classification report
     
     
-    # add y and ypred to the curent covariate features
-    test_dft = np.column_stack((test_dft, y_test, y_pred))
+#     # add y and ypred to the curent covariate features
+#     test_dft = np.column_stack((test_dft, y_test, y_pred))
     
-    print('took', (time.time()-start_time)/60, 'minutes') # print the time lapsed 
-    #return the relevant information for comparing hyperparameter trials
-    return {'model': model,
-            'history': results,
-            'confusion_matrix': cm, 
-            'report': class_rep, 
-            'predictions': test_dft,
-            'train_X': train_X,
-            'train_y': y_train,
-            'test_X': test_X,
-            'test_y': y_test,
-            'y_pred': y_pred,
-            'y_prob': y_prob,
-            'evals': [loss, pr_auc, roc_auc],
-            'params': params
-            }
+#     print('took', (time.time()-start_time)/60, 'minutes') # print the time lapsed 
+#     #return the relevant information for comparing hyperparameter trials
+#     return {'model': model,
+#             'history': results,
+#             'confusion_matrix': cm, 
+#             'report': class_rep, 
+#             'predictions': test_dft,
+#             'train_X': train_X,
+#             'train_y': y_train,
+#             'test_X': test_X,
+#             'test_y': y_test,
+#             'y_pred': y_pred,
+#             'y_prob': y_prob,
+#             'evals': [loss, pr_auc, roc_auc],
+#             'params': params
+#             }
  
 # Permutation analysis
 def pi_info(cm, report, evals, feature, lookback):

@@ -16,8 +16,7 @@ import seaborn as sns
 import pandas as pd
 from pandas import DataFrame
 from numpy import newaxis
-from sklearn.metrics import confusion_matrix, classification_report, f1_score, average_precision_score, roc_auc_score, log_loss
-from scikit.metrics import plot_roc_curve
+from sklearn.metrics import confusion_matrix, classification_report, f1_score, average_precision_score, roc_auc_score, log_loss, roc_curve, RocCurveDisplay
 import os
 os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 import tensorflow as tf
@@ -649,57 +648,38 @@ def eval_iter(model, params, train_X, train_y, test_X, test_y, patience = 0 , ma
     avg_val = eval_df.mean(axis =0)
     return eval_df, avg_val.loc[avg_val.index != 'iter']
 
-def result_summary(test_y, y_prob, path, filename):
+################################
+#### Predictive Performance ####
+################################
+def roc_plot(y, y_prob):
     """
-    Summary of model evaluation for single model for multiple iterations. Generates the prediction timestep and overall F1 score, overall 
-    classification report and confusion matrix. Outputs classification report nad confusion matrix to pdf.
-    
+    plot receiver operator curve
+
     Parameters
     ----------
-    test_y: one-hot encoded test_y
-    y_prob: probability of class prediction 
+    y : one-hot encoded observations 
+    y_prob : prediction probabilities
 
     Returns
     -------
-    score: overall f1 score
-    scores: timestep level f1 scores
-    class_rep: overall classification report
-    cm: overall confusion matrix
+    None.
 
     """
-    y_label = to_label(test_y) # observed target
-    y_pred = to_label(y_prob, prob = True) # predicted target
-    
-    if len(y_label.shape) == 1: # no multiple scores
-        scores = 'nan'
-    else:
-        scores = [] # create empty list to populate with timestep level predictions
-        for i in range(len(y_pred)): # for each timestep
-            f1 = f1_score(y_label[i,:], y_pred[i,:], average = 'macro') # get the f1 value at the timestep
-            scores.append(f1) # append to the empty scores list
-        y_pred = np.concatenate(y_pred) # merge predictions across timesteps to single vector
-        y_label = np.concatenate(y_label) # merge target values across timesteps to single vector
-    print('sequence level f1 score: ', scores)
-    score = f1_score(y_label, y_pred, average = 'macro') # generate the overall f1 score
-    print('overall f1 score: ', score)
-    
-    class_rep = class_report(y_label, y_pred) # get class report for overall
-    
-    with PdfPages(path+filename+'.pdf') as pdf:
-        cm = confusion_mat(y_label, y_pred) # get confusion matrix for overall
-        pdf.savefig(cm) # save figure
-        plt.close() # close page
-        plt.figure(figsize=(6, 2)) # assign figure size
-        plt.table(cellText=np.round(class_rep.values,4),
-                      colLabels = class_rep.columns, 
-                      rowLabels=class_rep.index,
-                      loc='center',
-                      fontsize = 9)
-        plt.axis('tight') 
-        plt.axis('off')
-        pdf.savefig() # save figure
-        plt.close() # close page
-    return score, scores, class_rep, cm
+    RocCurveDisplay.from_predictions(
+        y.ravel(),
+        y_prob.ravel(),
+        name="micro-average OvR",
+        color="darkorange",
+       # plot_chance_level=True,
+    )
+    plt.axline((0,0), (1,1), color = 'grey', ls = '--')
+    plt.axis("square")
+    plt.xlabel("False Positive Rate")
+    plt.ylabel("True Positive Rate")
+    plt.title("Micro-averaged One-vs-Rest\nReceiver Operating Characteristic")
+    plt.legend()
+    plt.show()
+
 
 def model_assess(train, test, params):
     """
@@ -805,10 +785,12 @@ def model_assess(train, test, params):
     y_prob = model.predict(test_X)
     y_label = to_label(test_y) # observed target
     y_pred = to_label(y_prob, prob = True) # predicted target
-    
     loss = log_loss(y_label, y_prob) # calculate loss
-    pr_auc = average_precision_score(y_label, y_prob) # calculate area under the precision-recal curve
-    roc_auc = roc_auc_score(y_label, y_prob) # calculate area under the receiver operator curve
+    pr_auc_mac = average_precision_score(test_y, y_prob) # calculate area under the precision-recall curve unweighted
+    pr_auc_weight = average_precision_score(test_y, y_prob, average = 'weighted') # calculate area under the precision-recall curve weighted 
+    roc_auc_ovr = roc_auc_score(y_label, y_prob, multi_class = 'ovr') # calculate area under the receiver operator curve one-versus-rest
+    roc_auc_ovo = roc_auc_score(y_label, y_prob, multi_class = 'ovo') # calculate area under the receiver operator curve one-versus-one
+    
     cm = confusion_mat(y_label, y_pred) # get confusion matrix for overall
     class_rep = class_report(y_label, y_pred) # get class report for overall
      
@@ -823,9 +805,9 @@ def model_assess(train, test, params):
     # pr_plot(y_test, y_prob) # precision recall curve
     # plt.show()
     # fig.tight_layout() 
-        # add y and ypred to the curent covariate features
-    results_df = np.column_stack((test_y, y_pred, y_prob))
-    results_df = pd.DataFrame(results_df, colnames = ['observed','prediction','feed_prob','rest_prob','social_prob','travel_prob'])
+    # add y and ypred to the curent covariate features
+    results_df = np.column_stack((y_label, y_pred, y_prob))
+    results_df = pd.DataFrame(results_df, columns = ['obs','pred','feed_prob','rest_prob','social_prob','travel_prob'])
     pred_df = pd.concat([train,results_df], axis = 1, ignore_index = True)
     
     results_dict = {'model': model,
@@ -839,9 +821,393 @@ def model_assess(train, test, params):
                     'test_y': test_y,
                     'y_pred': y_pred,
                     'y_prob': y_prob,
-                    'evals': [loss, pr_auc, roc_auc],
+                    'evals': [loss, pr_auc_mac, pr_auc_weight, roc_auc_ovr, roc_auc_ovo],
                     'params': params
                     }
 
     print('took', (time.time()-start_time)/60, 'minutes') # print the time lapsed 
     return results_dict
+
+# START HERE 
+def daily_dist(df):
+    """
+    Get the daily distribution of behaviors
+    
+    Parameters:
+    df : dataframe for calculating daily proportions 
+
+    Returns:
+    prop_df : dataframe with calculated proportions
+    """
+    if isinstance(df, np.ndarray): # if the dataframe is actuall a numpy array, convert it and assign the column names
+        df = DataFrame(df, columns = datasub.columns.values[(7+4):(7+18)].tolist() +['y','y_pred'])
+    df['ID'] = df['years'].astype(str) + df['doy_sin'].astype(str) + df['doy_cos'].astype(str)
+    df_freq = df.value_counts(['ID'],dropna=False).reset_index() # get counts for the records per day
+    df_y = df.groupby(['ID','y']).y.count()
+    levels = [df_y.index.levels[0].values,range(4)]
+    new_index = pd.MultiIndex.from_product(levels, names=['ID','behavior'])
+    df_y = df_y.reindex(new_index,fill_value=0).reset_index()
+    df_pred = df.groupby(['ID','y_pred']).y_pred.count()
+    df_pred = df_pred.reindex(new_index,fill_value=0).reset_index()
+    
+    prop_df = merge(left =df_y, right = df_pred, left_on = ["ID","behavior"], right_on= ["ID","behavior"], how = 'outer') # merge the behavior and predicted behavior counts 
+    prop_df = merge(left = prop_df, right = df_freq, on = ["ID"], how = 'left') # merge the daily behavior counts and predictions with the number of records per day
+    prop_df.rename(columns ={0:'n'}, inplace = True) # rename the relevant columns
+
+    # get proportions
+    prop_df['y_prop'] = prop_df.y/prop_df.n 
+    prop_df['ypred_prop'] = prop_df.y_pred/prop_df.n
+    return(prop_df)
+
+def perm_feat(start_index, end_index, t, eval_X):
+    """
+
+    Parameters
+    ----------
+    start_index : first indices of for the columns that pertain to the categorical varaible
+    end_index : 1+ last indices of for the columns that pertain to the categorical varaible
+    t : is lookback timestep being evaluated
+    eval_X : features dataset
+
+    Returns
+    -------
+    None.
+
+    """
+    eval_X_copy = np.copy(eval_X) # make copy of the original training features
+    # first deal with the behavior variable (categorical so all behavior onehot need to be shuffled in tandem)
+    value = np.copy(eval_X_copy[:,t,start_index:end_index]) # make a copy of behavior columns
+    eval_X_copy[:,t,start_index:end_index] = np.random.permutation(value) # permute the rows and replace the values in the copied df
+    return(eval_X_copy)
+
+def algo_var(y_pred, y_prob, y_label, test_dft, name, n_output = 1):
+    """
+    Parameters
+    ----------
+    model : model being assessed
+    test_X : Test features
+    test_y : Test targets
+    name :  model name
+    test_dft : deterministic feature values
+    n_output : number of outputs
+        DESCRIPTION. The default is 1.
+
+    Returns
+    -------
+    datarow: output information for a single run 
+
+    """
+  #  y_prob = model.predict(test_X)
+ #   y_pred = to_label(y_prob)
+
+  #  y_pred = np.apply_along_axis(nchoice, 1,y_prob)
+
+    cm = confusion_matrix(y_label, y_pred) # plot confusion matrix
+    class_rep = classification_report(y_label,y_pred, zero_division = 0, output_dict = True) # generate classification reports
+    class_rep = DataFrame(class_rep).transpose() # convert dictionary to dataframe
+    macro_auc = roc_auc_score(y_label, y_prob,average = 'macro',multi_class ='ovo')
+    weighted_auc = roc_auc_score(y_label, y_prob,average = 'weighted',multi_class ='ovo')
+    ovr_auc = roc_auc_score(y_label, y_prob,multi_class ='ovr')
+    # add y and ypred to the curent covariate features
+    if n_output == 1:
+        test_dft = np.column_stack((test_dft, y_label, y_pred))
+    else:
+        test_dft = np.append(test_dft, y_label, axis = 2)
+        test_dft = np.append(test_dft, y_pred, axis = 2)
+    
+    datarow = [name,class_rep.iloc[4,0]] # add model name, accuracy (2)
+    datarow.extend(class_rep.iloc[5,0:3].tolist()) # overall precision, recall and f1 score (3)
+    
+    f1 = class_rep.iloc[0:4,2].tolist()
+    prec = class_rep.iloc[0:4,0].tolist()
+    recall = class_rep.iloc[0:4,1].tolist()
+    acc = [accuracy_score(np.array(y_label) == i, np.array(y_pred) == i) for i in range(4)]
+    metrics_3 = [np.mean(itemgetter(0,1,3)(acc)), np.mean(itemgetter(0,1,3)(f1)), np.mean(itemgetter(0,1,3)(prec)),np.mean(itemgetter(0,1,3)(recall))]
+    
+    datarow.extend(acc) # add categorical recall (4)
+    datarow.extend(f1) # add categorical f1 score (4)
+    datarow.extend(prec) # add categorical precision (4)
+    datarow.extend(recall) # add categorical recall (4)
+    datarow.append(macro_auc) # add categorical f1 score (4)
+    datarow.append(weighted_auc) # add categorical precision (4)
+    datarow.append(ovr_auc) # add categorical recall (4)
+    datarow.extend(metrics_3) # add metrics 3 (3)
+    # datarow.extend(class_rep.iloc[0:4,2].tolist()) # add categorical f1 score (4)
+    # datarow.extend(class_rep.iloc[0:4,0].tolist()) # add categorical precision (4)
+    # datarow.extend(class_rep.iloc[0:4,1].tolist()) # add categorical recall (4)
+    conmat = np.reshape(cm,(1,16)) # add confusion matrix values (16)
+    datarow.extend(conmat.ravel().tolist())
+    datarow.extend(np.sum(cm,0).tolist())
+    t_prop = daily_dist(test_dft) # get the daily proportions
+    for i in [0,1,2,3]: 
+        ks = scipy.stats.ks_2samp(t_prop[t_prop['behavior'] == i].y_prop, t_prop[t_prop['behavior'] == i].ypred_prop, alternative = 'two_sided') # get the d statistics and p-values for the KS test
+        datarow.extend(list(ks)) # add KS values (6)
+    
+    mean_df = t_prop.groupby('behavior').mean('y_prop')
+    mean_val = mean_df.ypred_prop.values.tolist()
+    datarow.extend(mean_val)
+    print('working...')
+    return datarow
+
+def perm_assess(model, X_reshape, y): 
+    """
+    Parameters
+    ----------
+    model : fitted model
+    X_reshape : feature data
+    y : target data
+    Returns
+    -------
+    dict
+        confusion_matrix : confusion matrix output
+        report: classification report output
+    """
+    # make a prediction
+    y_prob = model.predict(X_reshape)
+    y_pred = to_label(y_prob)
+    #y_pred= y_prob.argmax(axis=-1)
+    return y_pred, y_prob
+
+
+def best_params(seed, prefix):
+    """
+    get out the best model parameters
+
+    Parameters
+    ----------
+    seed : TYPE
+        DESCRIPTION.
+
+    Returns
+    -------
+    space_best : parameters for best model
+
+    """
+    trials = joblib.load(prefix+str(seed)+'.pkl')
+    rnn_df = read_csv('vrnn'+str(seed)+'.csv', header = 0, index_col = 0)
+    bid = rnn_df.loc[rnn_df.val_f1 == max(rnn_df['val_f1'])].index.values[0]
+    space_best = trials.results[bid]['params']
+    return space_best
+
+def perm_importance(model, datarow, eval_X, test_dft, y_label,name):
+    # list feature names
+    feature_names = ['behavior','reproduction','sex','length','position','flower_count','fruit_count',
+                     'year','since_rest','since_feed','since_travel','adults','infants',
+                     'juveniles','rain','temperature', 'minutes','doy']
+  #  start_time = time.time()
+    colnames = ['model','accuracy','precision','recall','f1_score',
+                'acc_f','acc_r','acc_s','acc_t','f1_f','f1_r','f1_s','f1_t',
+                'precision_f','precision_r','precision_s','precision_t',
+                'recall_f','recall_r','recall_s','recall_t','auc_macro','auc_weighted','auc_ovr',
+                'acc_3','f1_3','precision_3','recall_3', 
+                'FF','FR','FS','FT','RF','RR','RS','RT','SF','SR','SS','ST','TF','TR','TS','TT',
+                'F_pred','R_pred','S_pred','T_pred','KSD_F','KSP_F','KSD_R','KSP_R','KSD_S',
+                'KSP_S','KSD_T','KSP_T','F_prop','R_prop','S_prop','T_prop','feature','lookback']
+    
+    # list feature names
+    datarow.extend(['original',0])
+    df = pd.DataFrame(columns = colnames)
+    df.loc[len(df.index)]= datarow
+    
+    # for each lookback period
+    for t in range(0,(eval_X.shape[1])):
+        counter = 0 # start counter for feature name
+        # run for behavior
+        eval_X_copy = perm_feat(0,4,t,eval_X)
+        perm_output = perm_assess(model, eval_X_copy, y_label)
+        datarow = algo_var(perm_output[0],perm_output[1], y_label, test_dft, name, n_output = 1)
+        datarow.extend([feature_names[counter], (eval_X.shape[1]-t)])
+        df.loc[len(df.index)]= datarow
+    #    print(feature_names[counter], t)
+        counter +=1
+        
+        # run for reproduction
+        eval_X_copy = perm_feat(4,8,t,eval_X) # reproduction
+        perm_output = perm_assess(model, eval_X_copy, y_label)
+        datarow = algo_var(perm_output[0],perm_output[1], y_label, test_dft, name, n_output = 1)
+        datarow.extend([feature_names[counter], (eval_X.shape[1]-t)])
+        df.loc[len(df.index)]= datarow
+    #    print(feature_names[counter], t)
+        counter +=1
+        
+        single_var = itertools.chain(range(8,14), range(18,26))
+        for f in single_var:
+            # do single permutations
+            eval_X_copy = perm_feat(f,f+1,t,eval_X)
+            perm_output = perm_assess(model, eval_X_copy, y_label)
+            datarow = algo_var(perm_output[0],perm_output[1], y_label, test_dft, name, n_output = 1)
+            datarow.extend([feature_names[counter], (eval_X.shape[1]-t)])
+            df.loc[len(df.index)]= datarow
+         #   print(feature_names[counter], t)
+            counter +=1
+        
+        eval_X_copy = perm_feat(14,16,t,eval_X) # minutes
+        perm_output = perm_assess(model, eval_X_copy, y_label)
+        datarow = algo_var(perm_output[0],perm_output[1], y_label, test_dft, name, n_output = 1)
+        datarow.extend([feature_names[counter], (eval_X.shape[1]-t)])
+        df.loc[len(df.index)]= datarow
+    #    print(feature_names[counter], t)
+        counter +=1
+    
+        eval_X_copy = perm_feat(16,18,t,eval_X) # doy
+        perm_output = perm_assess(model, eval_X_copy, y_label)
+        datarow = algo_var(perm_output[0],perm_output[1], y_label, test_dft, name, n_output = 1)
+        datarow.extend([feature_names[counter], (eval_X.shape[1]-t)])
+        df.loc[len(df.index)]= datarow
+     #   print(feature_names[counter], t)
+        counter +=1
+    return df
+
+def perm_imp_behavior(model, datarow, eval_X, test_dft, y_label,name):
+    # list feature names
+    feature_names = ['behavior']
+  #  start_time = time.time()
+    colnames = ['model','accuracy','precision','recall','f1_score',
+                'acc_f','acc_r','acc_s','acc_t','f1_f','f1_r','f1_s','f1_t',
+                'precision_f','precision_r','precision_s','precision_t',
+                'recall_f','recall_r','recall_s','recall_t','auc_macro','auc_weighted','auc_ovr',
+                'acc_3','f1_3','precision_3','recall_3', 
+                'FF','FR','FS','FT','RF','RR','RS','RT','SF','SR','SS','ST','TF','TR','TS','TT',
+                'F_pred','R_pred','S_pred','T_pred','KSD_F','KSP_F','KSD_R','KSP_R','KSD_S',
+                'KSP_S','KSD_T','KSP_T','F_prop','R_prop','S_prop','T_prop','feature','lookback']
+    
+    # list feature names
+    datarow.extend(['original',0])
+    df = pd.DataFrame(columns = colnames)
+    df.loc[len(df.index)]= datarow
+    
+    # for each lookback period
+    for t in range(0,(eval_X.shape[1])):
+        counter = 0 # start counter for feature name
+        # run for behavior
+        eval_X_copy = perm_feat(0,4,t,eval_X)
+        perm_output = perm_assess(model, eval_X_copy, y_label)
+        datarow = algo_var(perm_output[0],perm_output[1], y_label, test_dft, name, n_output = 1)
+        datarow.extend([feature_names[counter], (eval_X.shape[1]-t)])
+        df.loc[len(df.index)]= datarow
+    #    print(feature_names[counter], t)
+        counter +=1
+    
+    return df
+        
+def perm_imp_extrinsic(model, datarow, eval_X, test_dft, y_label,name):
+    # list feature names
+    feature_names = ['reproduction','sex','flower_count','fruit_count',
+                     'year','adults','infants',
+                     'juveniles','rain','temperature', 'minutes','doy']
+  #  start_time = time.time()
+    colnames = ['model','accuracy','precision','recall','f1_score',
+                'acc_f','acc_r','acc_s','acc_t','f1_f','f1_r','f1_s','f1_t',
+                'precision_f','precision_r','precision_s','precision_t',
+                'recall_f','recall_r','recall_s','recall_t','auc_macro','auc_weighted','auc_ovr',
+                'acc_3','f1_3','precision_3','recall_3', 
+                'FF','FR','FS','FT','RF','RR','RS','RT','SF','SR','SS','ST','TF','TR','TS','TT',
+                'F_pred','R_pred','S_pred','T_pred','KSD_F','KSP_F','KSD_R','KSP_R','KSD_S',
+                'KSP_S','KSD_T','KSP_T','F_prop','R_prop','S_prop','T_prop','feature','lookback']
+    
+    # list feature names
+    datarow.extend(['original',0])
+    df = pd.DataFrame(columns = colnames)
+    df.loc[len(df.index)]= datarow
+    
+    # for each lookback period
+    for t in range(0,(eval_X.shape[1])):
+        counter = 0 # start counter for feature name 
+        # run for reproduction
+        eval_X_copy = perm_feat(4,8,t,eval_X) # reproduction
+        perm_output = perm_assess(model, eval_X_copy, y_label)
+        datarow = algo_var(perm_output[0],perm_output[1], y_label, test_dft, name, n_output = 1)
+        datarow.extend([feature_names[counter], (eval_X.shape[1]-t)])
+        df.loc[len(df.index)]= datarow
+    #    print(feature_names[counter], t)
+        counter +=1
+        
+        single_var = np.r_[8, 11:14, 22:27]
+        for f in single_var:
+            # do single permutations
+            eval_X_copy = perm_feat(f,f+1,t,eval_X)
+            perm_output = perm_assess(model, eval_X_copy, y_label)
+            datarow = algo_var(perm_output[0],perm_output[1], y_label, test_dft, name, n_output = 1)
+            datarow.extend([feature_names[counter], (eval_X.shape[1]-t)])
+            df.loc[len(df.index)]= datarow
+         #   print(feature_names[counter], t)
+            counter +=1
+        
+        eval_X_copy = perm_feat(14,16,t,eval_X) # minutes
+        perm_output = perm_assess(model, eval_X_copy, y_label)
+        datarow = algo_var(perm_output[0],perm_output[1], y_label, test_dft, name, n_output = 1)
+        datarow.extend([feature_names[counter], (eval_X.shape[1]-t)])
+        df.loc[len(df.index)]= datarow
+    #    print(feature_names[counter], t)
+        counter +=1
+    
+        eval_X_copy = perm_feat(16,18,t,eval_X) # doy
+        perm_output = perm_assess(model, eval_X_copy, y_label)
+        datarow = algo_var(perm_output[0],perm_output[1], y_label, test_dft, name, n_output = 1)
+        datarow.extend([feature_names[counter], (eval_X.shape[1]-t)])
+        df.loc[len(df.index)]= datarow
+     #   print(feature_names[counter], t)
+        counter +=1
+    return df
+      
+
+def full_lb(model, params, train_X, train_y, test_X, test_y, name, covtype = 'full'):
+    """
+    Fit and evaluate model n number of times. Get the average of those runs
+
+    Parameters
+    ----------
+    model : model
+    params : hyperparameters
+    train_X : training features
+    train_y :  training targets
+    test_X : testing features
+    test_y : testing targets
+
+    Returns
+    -------
+    eval_run : metrics for each iteration
+    avg_val: average of the metrics average: val_f1, val_loss, train_f1, train_loss 
+    """
+    rannum = random.randrange(1,200000,1)
+    seed(rannum)
+    # assign the weights 
+    weights = dict(zip([0,1,2,3], [params['weights_0'], params['weights_1'], params['weights_2'], params['weights_3']]))
+    # assign the callback and weight type based on the model type
+    class_weights = weights # assign class weights as weights
+    
+    # fit the model 
+    history = model.fit(train_X, train_y, 
+                        epochs = params['epochs'],
+                        batch_size = params['batch_size'],
+                        verbose = 2,
+                        shuffle=False,
+                        class_weight = class_weights)
+    
+    y_prob = model.predict(test_X)
+    ypredmax = to_label(y_prob,'binom')
+    y_pred = to_label(y_prob)
+    y_label = to_label(test_y)
+
+    pred_array = np.column_stack((y_label, y_prob, y_pred, ypredmax))
+    pred_array = DataFrame(pred_array, columns = ['obs','f_prob','r_prob','s_prob','t_prob','pred','binom_pred'])
+    pred_array.to_csv('C:\\Users\\Jannet\\Documents\\Dissertation\\results\\behavior\\behavior_results\\'+name+'_predictions_'+str(rannum)+'.csv')
+    
+    drow = algo_var(y_pred, y_prob, y_label, test_dft, name, 1)
+   # start_time = time.time()
+    if covtype == 'full':
+        rnn_perm = perm_importance(model,drow, test_X, test_dft, y_label, name)
+    elif covtype == 'behavior':
+        rnn_perm = perm_imp_behavior(model,drow, test_X, test_dft, y_label, name)
+    else:
+        rnn_perm = perm_imp_extrinsic(model,drow, test_X, test_dft, y_label, name)
+        
+  #  print((time.time()-start_time)/60)
+    rnn_perm['acc_diff'] = rnn_perm['accuracy']-rnn_perm['accuracy'][0]
+   # rnn_perm['acc_absdiff'] = abs(rnn_perm['acc_diff'])
+ #   rnn_perm.sort_values(by = ['acc_absdiff'], axis=0, ascending=False, inplace = True)
+    rnn_perm['ID'] = rannum
+    rnn_perm = rnn_perm.iloc[:,np.r_[0,63,60:63,1:60]]
+    rnn_perm.to_csv('C:\\Users\\Jannet\\Documents\\Dissertation\\results\\behavior\\pvi_results\\'+name+'_perm_imp_'+str(rannum)+'.csv')
+    del history, model
+    return [rannum] + drow[0:60]
