@@ -216,30 +216,5 @@ rnn_perm = bmf.eval_pipeline(train,
                              path)
 
 # visualize results
-bmf.pi_plot(rnn_perm, ['accuracy','f1','precision','recall'])
-
-
-# Permutation analysis
-
-# trials = joblib.load('phen_basic_gru_sho_watertemp_405.pkl')
-
-
-# trial_df = trial_correg_plots(trials, 'SHO GRU soil moist temp 405')
-
-# triplot3d(trial_df[0])
-# kde_comp_mm(trial_df[0], np.r_[14,16],['val_acc','val_roc','val_pr'],'SHO GRU soil moist temp 405')
-
-# # get index of trial with highest validation score
-# bid = trial_df[0].nlargest(1,'val_pr').index.values[0]
-# params = trials.results[bid]['params']
-# params['epochs'] = 500
-# model_pipeline_valid(params)
-# params['epochs'] = 1000
-# model_pipeline_valid(params)
-# assessed = model_assess(params)
-
-# p_df = perm_importance(assessed['model'],assessed['confusion_matrix'], assessed['report'],assessed['evals'],
-#                          assessed['test_X'],assessed['test_y'], assessed['params']['lag'], 
-#                          list(assessed['params']['covariates'][1:]),'pi_gru_sho_moisttemp_405_loss_' + str(bid))
-
-# pi_plot(p_df,['loss_diff','acc_diff','roc_diff','pr_diff'])
+permimp_plot = bmf.pi_plot(rnn_perm, ['accuracy','f1','precision','recall'])
+permimp_plot.savefig(path+filename + '_perm_importance_plot.jpg', dpi=150) # save monitoring plot and examine in output file

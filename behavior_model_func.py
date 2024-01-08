@@ -85,7 +85,7 @@ def to_supervised(data, TID, window, lookback, n_output = 7):
             dft.append(data[in_end:out_end,7:28]) # append the deterministic features for current timestep to the deterministic features list
         in_start += window # move along the window time step
     # convert lists to array
-    X = np.array(X) 
+    X = np.array(X)
     y = np.array(y)
     dft = np.array(dft)
     # delete unknown target rows since we won't be predicting those
@@ -1566,7 +1566,7 @@ def eval_pipeline(train, test, params, path, prob = True):
         name = params['atype'] + '_' + params['mtype'] + '_' + params['predictor'] + '_f1loss_' + str(rannum)
    
     # save subset of results
-    pred_df.loc[:, ['obs','pred','predmax','feed_prob','rest_prob','social_prob','travel_prob', 'years', 'doy_sin','doy_cos']].to_csv(path + name + 'predictions.csv')
+    pred_df.loc[:, ['obs','pred','predmax','feed_prob','rest_prob','social_prob','travel_prob', 'years', 'doy_sin','doy_cos']].to_csv(path + name + '_predictions.csv')
      
     print('predictions generated and saved')
     
@@ -1602,7 +1602,8 @@ def pi_plot(df, metrics):
 
     Returns
     -------
-    None.
+    fig: plot,
+        figure
 
     '''
     features = df['feature'].unique() # get unique features
@@ -1610,7 +1611,7 @@ def pi_plot(df, metrics):
     nf = len(features) # number of features 
     nm = len(metrics) # number of metrics
     counter =1
-    fig, axs = plt.subplots(nf, nm, figsize = (4*nm, 4*nf))
+    fig, axs = plt.subplots(nf, nm, figsize = (3*nm, 3*nf))
     for i in range(nf):
         for metric in metrics:
             plt.subplot(nf,nm, counter)
@@ -1626,152 +1627,6 @@ def pi_plot(df, metrics):
             plt.ylabel(metric)
             counter+=1
     fig.tight_layout()  
-    plt.show(]
-           
-def pimp_model(rnn_perm, assessed, trials, seed, bid, atype):
-    """
-    Run and assess model using only the most important feature
+    plt.show()
     
-    Parameters
-    ----------
-    rnn_perm : permutation importance results
-    assessed : assessmenet output for best model
-    trials : hyperopt trials
-    seed : seed for hyperopt trials
-    bid : best model index
-    atype : architecture type ('VRNN' or 'ENDE')
-
-    Returns
-    -------
-    None.
-
-    """
-    best_look = (int(rnn_perm.iloc[0,1]) + 1)*-1
-    X_train = assessed['train_X']
-    X_train = np.copy(X_train[:,best_look,0:4])
-    X_train = X_train[:,newaxis,:]
-    X_test = assessed['test_X']
-    X_test = np.copy(X_test[:,best_look,0:4])
-    X_test = X_test[:,newaxis,:]
-    y_train = assessed['train_y']
-    y_test = assessed['test_y']
-    
-    best_trial = trials.results[bid]['params']
-    best_trial['lookback'] = 1
-    weights = dict(zip([0,1,2,3], [best_trial['weights_0'], best_trial['weights_1'], best_trial['weights_2'], best_trial['weights_3']])) # optimize class weights
-    if atype == 'VRNN':
-        class_weights = weights # assign class weights as weights
-        sample_weights = None
-        early_stopping = EarlyStopping(patience= best_trial['epochs'], monitor='val_f1_score', mode = 'max', restore_best_weights=True, verbose=0)
-        model = hyp_rnn_nest(params =best_trial, features =4, targets=4)
-    else:
-        class_weights = None 
-        total = sum(weights.values()) # get the sum of the weights to normalize
-        sample_weights = {ky: val / total for ky, val in weights.items()} # get the sample weight values
-        sample_weights = get_sample_weights(y_train, weights) # generate the formatted sample weights 
-        early_stopping = F1EarlyStopping(validation_data=[X_test, y_test], train_data=[X_train, y_train], patience= best_trial['epochs'])
-        model = hyp_ende_nest(params =best_trial, features =4, targets=4)  
-    model.summary() # output model summary
-    
-# fit the model
-    result = model.fit(X_train, y_train, 
-                           epochs = best_trial['epochs'], 
-                            batch_size = best_trial['batch_size'],
-                            verbose = 2,
-                            shuffle=False,
-                            validation_data = (X_test, y_test),
-                            sample_weight = sample_weights,
-                            class_weight = class_weights,
-                            callbacks = [early_stopping])
-    
-    # make a predictions
-    y_prob = model.predict(X_test)
-    y_pred = to_label(y_prob)
-    y_label = to_label(y_test)
-    
-    if atype == 'VRNN':
-        monitoring_plots(result) # plot validation plots
-    else:
-        monitoring_plots(result, early_stopping)
-    confusion_mat(y_label, y_pred) # plot confusion matrix
-    class_report(y_label,y_pred) # generate classification reports    
-    # add y and ypred to the curent covariate features
-    t_features = DataFrame(assessed['predictions'], columns = datasub.columns.values[(7+4):(7+18)].tolist() +['y','y_pred'])
-    t_features['y_pred'] = y_pred
-    t_prop = daily_dist(t_features)
-    daily_dist_plot(t_prop)
-    
-def model_postnalysis(seed, atype, mode  = None):
-    '''
-    Function to assess the best model results, run permutation analysis and run model with only important values w/ corresponding results
-
-    Parameters
-    ----------
-    seed : Hyperparameter seed
-    atype : architecture type ('VRNN' or 'ENDE')
-    
-    Returns
-    -------
-    Loss graph, f1 graph, classification report, confusion matrix and daily behavioral distributions for best model for the seed and importance variable model
-    top 10 most important features according to permutation importance for the best model
-    
-    Best model f1 graph
-
-    '''
-    if atype == 'VRNN':
-        if mode == 'bonly':
-            trials = joblib.load('vrnn_bonly_vv_trials_seed'+str(seed)+'.pkl')
-        else:
-            trials = joblib.load('vanilla_rnn_vv_trials_seed'+str(seed)+'.pkl')
-        rnn_df = read_csv('vrnn'+str(seed)+'.csv', header = 0, index_col = 0)
-        
-    else:
-        trials = joblib.load('ende_vv_trials_seed'+str(seed)+'.pkl')
-        rnn_df = read_csv('ende'+str(seed)+'.csv', header = 0, index_col = 0)
-    
-    bid = rnn_df.loc[rnn_df.val_f1 == max(rnn_df['val_f1'])].index.values[0]
-   
-    assessed = model_assess(trials.results[bid]['params'], atype)
-    rnn_prop = daily_dist(assessed['predictions'])
-    daily_dist_plot(rnn_prop)
-    
-    if mode != 'bonly':
-        rnn_perm = perm_importance(assessed['model'],assessed['confusion_matrix'], assessed['report'], assessed['test_X'], assessed['y_label'])    
-        rnn_perm['f1_diff'] = abs(rnn_perm['f1_score']-rnn_perm['f1_score'][0])
-        rnn_perm.sort_values(by = ['f1_diff'], axis=0, ascending=False, inplace = True)
-        print(rnn_perm.iloc[0:10,[0,1,34]])
-        rnn_perm.to_csv(str(atype)+str(seed)+'_perm_df.csv')
-        
-        # return {'rnn_perm': rnn_perm,
-        #         'trials': trials,
-        #         'assessed': assessed,
-        #         'bid': bid
-        #         }
-        pimp_model(rnn_perm,assessed, trials, seed, bid, atype)
- 
-def model_pipeline_valid(params):
-   # start_time = time.time()
-    # create dataset 
-    X, y, dft = to_supervised(datasub.iloc[:,[0,2,3,1,5]],rano_clim.loc[:,params['covariates']],kian_clim.loc[:,params['covariates']],params['lookback'], params['lag'],'fruit')   
-    # split dataset
-    X_train_scaled, X_test_scaled, y_train, y_test, dft_train, dft_test = train_test_split(np.array(X), np.array(y), np.array(dft), test_size=DATA_SPLIT_PCT, random_state=params['seed'],stratify =np.array(y))
-    X_train_scaled, X_valid_scaled, y_train, y_valid, dft_train, dft_valid = train_test_split(X_train_scaled, y_train, dft_train, test_size=DATA_SPLIT_PCT, random_state=SEED, stratify = y_train)
-
-    if params['hs'] == 'hidden':
-        model = build_hrnn(params)
-    #    model.summary()
-    elif params['hs'] == 'stacked':
-        model = build_srnn(params)
-       # model.summary()
-    else:
-        print('architecture not satisfied')
-        exit()
-    
-    history = model.fit(X_train_scaled, y_train, 
-                         epochs = int(params['epochs']), 
-                         batch_size = int(params['batch']),
-                         verbose = 2,
-                         shuffle=False,
-                         validation_data = (X_valid_scaled,y_valid))
-     
-    plot_monitor(history) # monitoring plots
+    return fig
