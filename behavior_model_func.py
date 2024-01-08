@@ -8,7 +8,7 @@ Functions to compile, run and evaluate single vanilla RNN and encoder-decoder RN
 The use of these functions are demonstrated in the single_vanilla_rnn.py and singel_ende_rnn.py codes. 
 
 """
-import time
+import time, os, random, joblib, scipy
 import numpy as np
 from matplotlib import pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
@@ -16,8 +16,7 @@ import seaborn as sns
 import pandas as pd
 from pandas import DataFrame
 from numpy import newaxis
-from sklearn.metrics import confusion_matrix, classification_report, f1_score, average_precision_score, roc_auc_score, log_loss, roc_curve, RocCurveDisplay
-import os
+from sklearn.metrics import confusion_matrix, classification_report, f1_score, average_precision_score, roc_auc_score, log_loss, accuracy_score
 os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 import tensorflow as tf
 from tensorflow.keras.layers import Dense, Dropout, LSTM, Masking, GRU, RepeatVector, TimeDistributed
@@ -25,6 +24,7 @@ from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.callbacks import EarlyStopping
 import keras.backend as K
+from operator import itemgetter
 
 #########################
 #### Data formatting ####
@@ -49,7 +49,7 @@ def split_dataset(data, years):
     test = data[data["year"] > years] # get years that greater than year used for training cut off
     return train, test
 
-def to_supervised(data, TID, window, lookback, n_output=7):
+def to_supervised(data, TID, window, lookback, n_output = 7):
     """
     Format training data for multivariate, multistep time series prediction models
 
@@ -642,7 +642,7 @@ def eval_iter(model, params, train_X, train_y, test_X, test_y, patience = 0 , ma
             for v in history.history.values():
                 mod_eval.append(v[-patience-1]) # append ending metrics
         eval_run.append(mod_eval)
-    eval_df = pd.DataFrame(eval_run, 
+    eval_df = DataFrame(eval_run, 
                             columns = ['epochs','iter','train_loss','train_f1','train_acc',
                                        'val_loss','val_f1','val_acc'])
     avg_val = eval_df.mean(axis =0)
@@ -651,35 +651,104 @@ def eval_iter(model, params, train_X, train_y, test_X, test_y, patience = 0 , ma
 ################################
 #### Predictive Performance ####
 ################################
-def roc_plot(y, y_prob):
+def best_params(path, filename, metric = 'val_f1', minimize = False):
     """
-    plot receiver operator curve
+    Extract best model parameters
 
     Parameters
     ----------
-    y : one-hot encoded observations 
-    y_prob : prediction probabilities
+    path : str,
+        file directory of hyperopt result
+    filename : str,
+        filename of hyperopt result 
+    metric : str, optional
+        metric to determine the best model. The default is 'val_f1'.
+    minimize : bool, optional
+        whether to minimize or maximize the metric. The default is False.
 
     Returns
     -------
-    None.
+    space_best : best model parameters
+    """
+    trials = joblib.load(path + filename + '.pkl')
+    rnn_df = pd.read_csv(path + filename +'.csv', header = 0, index_col = 0)
+    if minimize == True:
+        bid = rnn_df[rnn_df[metric] == max(rnn_df[metric])].index.values[0]
+    else:
+        bid = rnn_df[rnn_df[metric] == min(rnn_df[metric])].index.values[0]
+    space_best = trials.results[bid]['params']
+    return space_best
+
+def train_test_format(train,test, params):
+    """
+    format the training and testing data for the model
+
+    Parameters
+    ----------
+    train : training data 
+    test : testing data
+    params : model parameters
+
+    Raises
+    ------
+    Exception
+        something other than 'full','behavior','internal','external' designated in params['predictor']
+    
+
+    Returns
+    -------
+    train_X : array,
+        training features
+    train_y : array,
+        training targets (one-hot encoded)
+    train_dft : array,
+        deterministic training features
+    test_X : array,
+        testing features
+    test_y : array,
+        testing targets (one-hot encoded)
+    test_dft : array,
+        deterministic testing features
 
     """
-    RocCurveDisplay.from_predictions(
-        y.ravel(),
-        y_prob.ravel(),
-        name="micro-average OvR",
-        color="darkorange",
-       # plot_chance_level=True,
-    )
-    plt.axline((0,0), (1,1), color = 'grey', ls = '--')
-    plt.axis("square")
-    plt.xlabel("False Positive Rate")
-    plt.ylabel("True Positive Rate")
-    plt.title("Micro-averaged One-vs-Rest\nReceiver Operating Characteristic")
-    plt.legend()
-    plt.show()
-
+    # format training data
+    train_X, train_y, train_dft = to_supervised(data = train.iloc[:,6:34], 
+                                                TID = train['TID'], 
+                                                window = 1, 
+                                                lookback = params['lookback'], 
+                                                n_output = params['n_outputs']) 
+    # format testing data
+    test_X, test_y, test_dft = to_supervised(data = test.iloc[:,6:34], 
+                                             TID = test['TID'],
+                                             window = 1, 
+                                             lookback = params['lookback'], 
+                                             n_output = params['n_outputs'])
+    
+    # if encoder-decode model and predict 1 timestep, reconfigure 2d y to 3d
+    if params['atype'] == 'ENDE' and params['n_outputs'] == 1:
+        test_y = test_y[:,newaxis,:]
+        train_y = train_y[:,newaxis,:]
+    
+    # assign and format feature set
+    if params['predictor'] == 'full': # use full set of features
+        train_X = train_X
+        test_X = test_X
+    elif params['predictor'] == 'behavior': # use only prior behaviors as features
+        # subset only prior behavior features
+        train_X = np.copy(train_X[:,:,0:4]) 
+        test_X = np.copy(test_X[:,:,0:4])
+    elif params['predictor'] == 'internal': # use internal features (behaviors and sex) as features
+        # subset only prior behavior features
+        train_X = np.copy(train_X[:,:,0:12]) 
+        test_X = np.copy(test_X[:,:,0:12])
+    elif params['predictor'] == 'external': # use the extrinsic conditions
+        # subset only extrinsic features
+        train_X = np.copy(train_X[:,:,8:25])
+        test_X = np.copy(test_X[:,:,8:25])  
+    else:
+        raise Exception ('invalid feature selection')   
+    
+    return train_X, train_y, train_dft, test_X, test_y, test_dft
 
 def model_assess(train, test, params):
     """
@@ -707,8 +776,10 @@ def model_assess(train, test, params):
         'train_X': training features
         'train_y': training targets
         'test_X': testing features
-        'test_y': testing targets
-        'y_pred': predictions 
+        'test_y': testing targets (one-hot encoded)
+        'y_label': labelled testing targets
+        'y_pred': predictions, drawn from prob
+        'y_predmax': predictions, max prob
         'y_prob': multiclass prediction probabilities
         'evals': llist of loss, precision-recall AUC and receiver-operator AUC 
         'params': parameters
@@ -716,45 +787,12 @@ def model_assess(train, test, params):
         
     """
     start_time = time.time()
+    # format training and testing data
+    train_X, train_y, train_dft, test_X, test_y, test_dft = train_test_format(train, test, params)
+    
     targets = 4 # set number of targets (4 behavior classes)
-    # format the training and testing data for the model
-    train_X, train_y, train_dft = to_supervised(data = train.iloc[:,6:34], 
-                                                    TID = train['TID'], 
-                                                    window = 1, 
-                                                    lookback = params['lookback'], 
-                                                    n_output = params['n_outputs']) 
-    # format testing data
-    test_X, test_y, test_dft = to_supervised(data = test.iloc[:,6:34], 
-                                                 TID = test['TID'],
-                                                 window = 1, 
-                                                 lookback = params['lookback'], 
-                                                 n_output = params['n_outputs'])
+    features = test_X.shape[2] # get number of features 
     
-    # if encoder-decode model and predict 1 timestep, reconfigure 2d y to 3d
-    if params['atype'] == 'ENDE' and params['n_outputs'] == 1:
-        test_y = test_y[:,newaxis,:]
-        train_y = train_y[:,newaxis,:]
-    
-    # assign and format feature set
-    if params['predictor'] == 'full': # use full set of features
-        features=28 # set feature number
-    elif params['predictor'] == 'behavior': # use only prior behaviors as features
-        features=4 # set features
-        # subset only prior behavior features
-        train_X = np.copy(train_X[:,:,0:4]) 
-        test_X = np.copy(test_X[:,:,0:4])
-    elif params['predictor'] == 'internal': # use internal features (behaviors and sex) as features
-        features=12 # set features
-        # subset only prior behavior features
-        train_X = np.copy(train_X[:,:,0:12]) 
-        test_X = np.copy(test_X[:,:,0:12])
-    elif params['predictor'] == 'external': # use the extrinsic conditions
-        features = 17
-        # subset only extrinsic features
-        train_X = np.copy(train_X[:,:,8:25])
-        test_X = np.copy(test_X[:,:,8:25])  
-    else:
-        raise Exception ('invalid feature selection')   
     model = build_model_func(params, features, targets) # build model
     
     # assign class weights
@@ -785,30 +823,28 @@ def model_assess(train, test, params):
     y_prob = model.predict(test_X)
     y_label = to_label(test_y) # observed target
     y_pred = to_label(y_prob, prob = True) # predicted target
-    loss = log_loss(y_label, y_prob) # calculate loss
-    pr_auc_mac = average_precision_score(test_y, y_prob) # calculate area under the precision-recall curve unweighted
-    pr_auc_weight = average_precision_score(test_y, y_prob, average = 'weighted') # calculate area under the precision-recall curve weighted 
-    roc_auc_ovr = roc_auc_score(y_label, y_prob, multi_class = 'ovr') # calculate area under the receiver operator curve one-versus-rest
-    roc_auc_ovo = roc_auc_score(y_label, y_prob, multi_class = 'ovo') # calculate area under the receiver operator curve one-versus-one
+    y_predmax = to_label(y_prob, prob = False) # predicted target
     
     cm = confusion_mat(y_label, y_pred) # get confusion matrix for overall
     class_rep = class_report(y_label, y_pred) # get class report for overall
-     
-    # fig, axis = plt.subplots(1,4,figsize=(18,4))
-    # plt.subplot(1,4,1)
-    # confusion_mat(y_test,y_pred, LABELS = LABELS, normalize = 'true')
-    # plt.subplot(1,4,2)
-    # confusion_mat(y_test,y_pred, LABELS = LABELS, normalize = None)
-    # plt.subplot(1, 4, 3) 
-    # plot_roc_curv(y_test, y_prob) # roc curve
-    # plt.subplot(1, 4, 4)  
-    # pr_plot(y_test, y_prob) # precision recall curve
-    # plt.show()
-    # fig.tight_layout() 
-    # add y and ypred to the curent covariate features
-    results_df = np.column_stack((y_label, y_pred, y_prob))
-    results_df = pd.DataFrame(results_df, columns = ['obs','pred','feed_prob','rest_prob','social_prob','travel_prob'])
-    pred_df = pd.concat([train,results_df], axis = 1, ignore_index = True)
+    # calculate ROC AUC
+    macro_auc = roc_auc_score(y_label, y_prob,average = 'macro',multi_class ='ovo')
+    weighted_auc = roc_auc_score(y_label, y_prob,average = 'weighted',multi_class ='ovo')
+    micro_auc = roc_auc_score(y_label, y_prob,multi_class ='ovr')
+    # calculate PR AUC
+    macro_pr = average_precision_score(test_y, y_prob) # calculate area under the precision-recall curve unweighted
+    weighted_pr = average_precision_score(test_y, y_prob, average = 'weighted') # calculate area under the precision-recall curve weighted 
+    loss = log_loss(y_label, y_prob) # calculate loss
+    
+    # concatenate into one dataframe
+    results_df = np.column_stack((test_dft, y_label, y_pred, y_predmax, y_prob))
+    names = ['sex', 'gestation', 'lactation', 'mating', 'nonreproductive',
+       'fragment', 'rain', 'temperature', 'flower_count', 'fruit_count',
+       'years', 'minutes_sin', 'minutes_cos', 'doy_sin', 'doy_cos', 'adults',
+       'infants', 'juveniles', 'individual_continuity', 'length', 'position',
+       'obs','pred','predmax','feed_prob','rest_prob','social_prob','travel_prob']
+       
+    pred_df = DataFrame(results_df, columns = names)
     
     results_dict = {'model': model,
                     'history': history,
@@ -819,137 +855,146 @@ def model_assess(train, test, params):
                     'train_y': train_y,
                     'test_X': test_X,
                     'test_y': test_y,
+                    'test_dft': test_dft,
+                    'y_label': y_label,
                     'y_pred': y_pred,
+                    'y_predmax': y_predmax,
                     'y_prob': y_prob,
-                    'evals': [loss, pr_auc_mac, pr_auc_weight, roc_auc_ovr, roc_auc_ovo],
+                    'evals': [weighted_auc, micro_auc, macro_auc, weighted_pr, macro_pr, loss],
                     'params': params
                     }
-
+    
     print('took', (time.time()-start_time)/60, 'minutes') # print the time lapsed 
     return results_dict
 
-# START HERE 
-def daily_dist(df):
+def daily_dist(df, prob = True):
     """
     Get the daily distribution of behaviors
     
-    Parameters:
-    df : dataframe for calculating daily proportions 
+    Parameters
+    ----------
+    df : dataframe,
+        dataframe of behavioral data with observed and predicted behavior classes
+    prob: bool,
+        True when prediction draw from probilities, False when prediction taken as highest probability. Default is True
 
-    Returns:
-    prop_df : dataframe with calculated proportions
+    Returns
+    -------
+    prop_df : dataframe,
+                daily proporiton of observed and predicted behaviors.
+
     """
-    if isinstance(df, np.ndarray): # if the dataframe is actuall a numpy array, convert it and assign the column names
-        df = DataFrame(df, columns = datasub.columns.values[(7+4):(7+18)].tolist() +['y','y_pred'])
-    df['ID'] = df['years'].astype(str) + df['doy_sin'].astype(str) + df['doy_cos'].astype(str)
-    df_freq = df.value_counts(['ID'],dropna=False).reset_index() # get counts for the records per day
-    df_y = df.groupby(['ID','y']).y.count()
-    levels = [df_y.index.levels[0].values,range(4)]
-    new_index = pd.MultiIndex.from_product(levels, names=['ID','behavior'])
-    df_y = df_y.reindex(new_index,fill_value=0).reset_index()
-    df_pred = df.groupby(['ID','y_pred']).y_pred.count()
-    df_pred = df_pred.reindex(new_index,fill_value=0).reset_index()
+    # if isinstance(df, np.ndarray): # if the data is a numpy array, convert it and assign the column names
+    #     df = DataFrame(df, columns = datasub.columns.values[(7+4):(7+18)].tolist() +['y','y_pred'])
+    df['ID'] = df['years'].astype(str) + df['doy_sin'].astype(str) + df['doy_cos'].astype(str) # create date identifier
+    df_freq = df.value_counts(['ID'],dropna=False).reset_index() # get counts for the records per day 
+    # count each observed type of behavior class per day 
+    df_y = df.groupby(['ID','obs']).obs.count()
+    levels = [df_y.index.levels[0].values,list(range(4))]
+    new_index = pd.MultiIndex.from_product(levels, names=['ID','behavior']) # get indices 
+    df_y = df_y.reindex(new_index,fill_value=0).reset_index() # reindex
+    # count each predicted type of behavior class per day 
+    if prob == True:    
+        df_pred = df.groupby(['ID','pred']).pred.count()
+        df_pred = df_pred.reindex(new_index,fill_value=0).reset_index() # reindex
+    else:
+        df_pred = df.groupby(['ID','predmax']).predmax.count()
+        df_pred = df_pred.reindex(new_index,fill_value=0).reset_index() # reindex
+        
+    # concatenate the data into one dataframe
+    # merge the behavior and predicted behavior counts 
+    prop_df = pd.merge(left =df_y, 
+                       right = df_pred, 
+                       left_on = ["ID","behavior"], 
+                       right_on= ["ID","behavior"], 
+                       how = 'outer') 
     
-    prop_df = merge(left =df_y, right = df_pred, left_on = ["ID","behavior"], right_on= ["ID","behavior"], how = 'outer') # merge the behavior and predicted behavior counts 
-    prop_df = merge(left = prop_df, right = df_freq, on = ["ID"], how = 'left') # merge the daily behavior counts and predictions with the number of records per day
+    # merge the daily behavior counts and predictions with the number of records per day
+    prop_df = pd.merge(left = prop_df, 
+                       right = df_freq, 
+                       on = ["ID"], 
+                       how = 'left') 
     prop_df.rename(columns ={0:'n'}, inplace = True) # rename the relevant columns
 
     # get proportions
-    prop_df['y_prop'] = prop_df.y/prop_df.n 
-    prop_df['ypred_prop'] = prop_df.y_pred/prop_df.n
-    return(prop_df)
+    prop_df['y_prop'] = prop_df.obs/prop_df.n 
+    if prob == True:
+        prop_df['ypred_prop'] = prop_df.pred/prop_df.n
+    else:    
+        prop_df['ypred_prop'] = prop_df.predmax/prop_df.n
+    return prop_df
 
+def daily_dist_plot(df):
+    """
+    Parameters
+    ----------
+    df : plots with proportions of daily behaviors 
+    
+    Returns
+    -------
+    fig : figure 
+
+    """
+    # set graph layout
+    behaviors = ['feed','rest','social','travel']
+    fig, axs = plt.subplots(2, 4, 
+                            tight_layout = True, 
+                            figsize=(8,4))
+    bins = np.arange(0,1.1,0.1)
+    for i in range(4):
+        axs[1,i].hist(df[df['obs'] == i].y_prop, 
+                      range = (0,1), 
+                      bins = bins, 
+                      alpha = 0.5, 
+                      label = 'true', 
+                      density = False)
+        axs[1,i].hist(df[df['pred'] == i].ypred_prop, 
+                      range = (0,1),  
+                      bins = bins, 
+                      alpha = 0.5, 
+                      label = 'predicted', 
+                      density = False)
+        axs[0,i].hist([df[df['obs'] == i].y_prop, 
+                       df[df['pred'] == i].ypred_prop], 
+                      bins = bins, 
+                      label=['true', 'predicted'])
+        axs[0,i].set_title(behaviors[i])
+    
+    fig.text(0.5, 0.00, 
+             'proportion', 
+             ha='center')
+    fig.text(0.00, 0.5, 
+             'frequency', 
+             va='center', 
+             rotation='vertical')
+    handles, labels = axs[0,1].get_legend_handles_labels()
+    fig.legend(handles, 
+               labels, 
+               loc = (0.87, 0.8), 
+               prop={'size': 7})
+    return fig
+        
 def perm_feat(start_index, end_index, t, eval_X):
     """
 
     Parameters
     ----------
-    start_index : first indices of for the columns that pertain to the categorical varaible
-    end_index : 1+ last indices of for the columns that pertain to the categorical varaible
+    start_index : first indices of for the columns that pertain to the multi-column variables
+    end_index : last indices + 1 of for the columns that pertain to the multi-column variables
     t : is lookback timestep being evaluated
     eval_X : features dataset
 
     Returns
     -------
-    None.
+    eval_X_copy : data with permutated multiclass variable
 
     """
-    eval_X_copy = np.copy(eval_X) # make copy of the original training features
-    # first deal with the behavior variable (categorical so all behavior onehot need to be shuffled in tandem)
-    value = np.copy(eval_X_copy[:,t,start_index:end_index]) # make a copy of behavior columns
+    eval_X_copy = np.copy(eval_X) # make copy of the original features
+    value = np.copy(eval_X_copy[:,t,start_index:end_index]) # make a copy of columns
     eval_X_copy[:,t,start_index:end_index] = np.random.permutation(value) # permute the rows and replace the values in the copied df
-    return(eval_X_copy)
+    return eval_X_copy 
 
-def algo_var(y_pred, y_prob, y_label, test_dft, name, n_output = 1):
-    """
-    Parameters
-    ----------
-    model : model being assessed
-    test_X : Test features
-    test_y : Test targets
-    name :  model name
-    test_dft : deterministic feature values
-    n_output : number of outputs
-        DESCRIPTION. The default is 1.
-
-    Returns
-    -------
-    datarow: output information for a single run 
-
-    """
-  #  y_prob = model.predict(test_X)
- #   y_pred = to_label(y_prob)
-
-  #  y_pred = np.apply_along_axis(nchoice, 1,y_prob)
-
-    cm = confusion_matrix(y_label, y_pred) # plot confusion matrix
-    class_rep = classification_report(y_label,y_pred, zero_division = 0, output_dict = True) # generate classification reports
-    class_rep = DataFrame(class_rep).transpose() # convert dictionary to dataframe
-    macro_auc = roc_auc_score(y_label, y_prob,average = 'macro',multi_class ='ovo')
-    weighted_auc = roc_auc_score(y_label, y_prob,average = 'weighted',multi_class ='ovo')
-    ovr_auc = roc_auc_score(y_label, y_prob,multi_class ='ovr')
-    # add y and ypred to the curent covariate features
-    if n_output == 1:
-        test_dft = np.column_stack((test_dft, y_label, y_pred))
-    else:
-        test_dft = np.append(test_dft, y_label, axis = 2)
-        test_dft = np.append(test_dft, y_pred, axis = 2)
-    
-    datarow = [name,class_rep.iloc[4,0]] # add model name, accuracy (2)
-    datarow.extend(class_rep.iloc[5,0:3].tolist()) # overall precision, recall and f1 score (3)
-    
-    f1 = class_rep.iloc[0:4,2].tolist()
-    prec = class_rep.iloc[0:4,0].tolist()
-    recall = class_rep.iloc[0:4,1].tolist()
-    acc = [accuracy_score(np.array(y_label) == i, np.array(y_pred) == i) for i in range(4)]
-    metrics_3 = [np.mean(itemgetter(0,1,3)(acc)), np.mean(itemgetter(0,1,3)(f1)), np.mean(itemgetter(0,1,3)(prec)),np.mean(itemgetter(0,1,3)(recall))]
-    
-    datarow.extend(acc) # add categorical recall (4)
-    datarow.extend(f1) # add categorical f1 score (4)
-    datarow.extend(prec) # add categorical precision (4)
-    datarow.extend(recall) # add categorical recall (4)
-    datarow.append(macro_auc) # add categorical f1 score (4)
-    datarow.append(weighted_auc) # add categorical precision (4)
-    datarow.append(ovr_auc) # add categorical recall (4)
-    datarow.extend(metrics_3) # add metrics 3 (3)
-    # datarow.extend(class_rep.iloc[0:4,2].tolist()) # add categorical f1 score (4)
-    # datarow.extend(class_rep.iloc[0:4,0].tolist()) # add categorical precision (4)
-    # datarow.extend(class_rep.iloc[0:4,1].tolist()) # add categorical recall (4)
-    conmat = np.reshape(cm,(1,16)) # add confusion matrix values (16)
-    datarow.extend(conmat.ravel().tolist())
-    datarow.extend(np.sum(cm,0).tolist())
-    t_prop = daily_dist(test_dft) # get the daily proportions
-    for i in [0,1,2,3]: 
-        ks = scipy.stats.ks_2samp(t_prop[t_prop['behavior'] == i].y_prop, t_prop[t_prop['behavior'] == i].ypred_prop, alternative = 'two_sided') # get the d statistics and p-values for the KS test
-        datarow.extend(list(ks)) # add KS values (6)
-    
-    mean_df = t_prop.groupby('behavior').mean('y_prop')
-    mean_val = mean_df.ypred_prop.values.tolist()
-    datarow.extend(mean_val)
-    print('working...')
-    return datarow
-
-def perm_assess(model, X_reshape, y): 
+def perm_assess(model, X_reshape): 
     """
     Parameters
     ----------
@@ -964,194 +1009,355 @@ def perm_assess(model, X_reshape, y):
     """
     # make a prediction
     y_prob = model.predict(X_reshape)
-    y_pred = to_label(y_prob)
-    #y_pred= y_prob.argmax(axis=-1)
-    return y_pred, y_prob
+    y_pred = to_label(y_prob,prob = True)
+    y_predmax = to_label(y_prob, prob = False) # predicted target
+    
+    return y_pred, y_prob, y_predmax
 
-
-def best_params(seed, prefix):
+def algo_var(test_y, test_dft, y_label, y_pred, y_predmax, y_prob, name, lookback = np.nan, prob = True):
     """
-    get out the best model parameters
+    returns performance metrics for a model
 
     Parameters
     ----------
-    seed : TYPE
+    test_y : array,
+        testing targets (one-hot encoded)
+    test_dft : array,
+        testing deterministic features
         DESCRIPTION.
-
+    y_label : array,
+        labelled testing targets.
+    y_pred : array,
+        labelled class predictions drawn from probability distribution
+    y_predmax: array 
+        labelled class predictions, predicted based on max probability
+    y_prob : array,
+        multiclass prediction probabilities
+    name : str,
+        model name to be used as identifier.
+    lookback : int,
+        lookback.
+    prob: bool,
+        True when prediction draw from probilities, False when prediction taken as highest probability. Default is True
+    
     Returns
     -------
-    space_best : parameters for best model
+    datarow : list,
+        model results
 
     """
-    trials = joblib.load(prefix+str(seed)+'.pkl')
-    rnn_df = read_csv('vrnn'+str(seed)+'.csv', header = 0, index_col = 0)
-    bid = rnn_df.loc[rnn_df.val_f1 == max(rnn_df['val_f1'])].index.values[0]
-    space_best = trials.results[bid]['params']
-    return space_best
+    # plot confusion matrix
+    cm = confusion_matrix(y_label, y_pred)
+    # generate classification reports
+    class_rep = class_report(y_label, 
+                             y_pred)
+    
+    # calculate ROC AUC 
+    macro_auc = roc_auc_score(y_label, y_prob,average = 'macro',multi_class ='ovo')
+    weighted_auc = roc_auc_score(y_label, y_prob, average = 'weighted',multi_class ='ovo')
+    micro_auc = roc_auc_score(y_label, y_prob,multi_class ='ovr')
+    
+    # calculate PR AUC
+    pr_auc_mac = average_precision_score(test_y, y_prob) # calculate area under the precision-recall curve unweighted
+    pr_auc_weight = average_precision_score(test_y, y_prob, average = 'weighted') # calculate area under the precision-recall curve weighted 
+    loss = log_loss(y_label, y_prob) # calculate loss
+    
+    # column names
+    cnames = ['sex', 'gestation', 'lactation','mating', 'nonreproductive', 'fragment', 'rain', 'temperature', 
+              'flower_count', 'fruit_count','years', 'minutes_sin', 'minutes_cos', 'doy_sin', 'doy_cos', 'adults',
+              'infants', 'juveniles', 'individual_continuity', 'length', 'position', 'obs','pred','predmax','feed_prob',
+              'rest_prob','social_prob','travel_prob']
+    
+    pred_df = np.column_stack((test_dft, y_label, y_pred, y_predmax, y_prob))
+    pred_df = DataFrame(pred_df, columns = cnames)
+    
+    # extract metrics
+    datarow = [name,lookback] # 2
+    overall_acc = [class_rep.iloc[4,0]]
+    datarow = datarow + overall_acc # 1 
+    
+    overall_met = list(class_rep.iloc[5,0:3]) # overall precision, recall and f1 score (3)
+    datarow = datarow + overall_met # 3
+    
+    acc = [accuracy_score(np.array(y_label) == i, np.array(y_pred) == i) for i in range(4)] # class accuracy scores
+    datarow = datarow + acc # 4
+    
+    f1 = list(class_rep.iloc[0:4,2]) # class f1 scoores (4)
+    datarow = datarow + f1 # 4
+    
+    prec = list(class_rep.iloc[0:4,0]) # class precision scores (4)
+    datarow = datarow + prec # 4
+    
+    recall = list(class_rep.iloc[0:4,1]) # class recall scores (4)
+    datarow = datarow + recall # 4
+    
+    
+    datarow = datarow + [macro_auc, weighted_auc, micro_auc, pr_auc_mac, pr_auc_weight, loss]
+    
+    # mean scores without socializing class
+    metrics_3 = [np.mean(itemgetter(0,1,3)(acc)), 
+                 np.mean(itemgetter(0,1,3)(prec)),
+                 np.mean(itemgetter(0,1,3)(recall)),
+                 np.mean(itemgetter(0,1,3)(f1))] 
+    datarow = datarow + metrics_3 # (4)
+        
+    conmat = np.reshape(cm,(1,16)) # add confusion matrix values (16)
+    datarow = datarow + list(conmat.ravel()) 
+    datarow = datarow + list(np.sum(cm,0))
+    
+    t_prop = daily_dist(pred_df, prob = prob) # get the daily proportions
+    for i in [0,1,2,3]: 
+        ks = scipy.stats.ks_2samp(t_prop[t_prop['behavior'] == i].y_prop, 
+                                  t_prop[t_prop['behavior'] == i].ypred_prop, 
+                                  alternative = 'two_sided') # get the d statistics and p-values for the KS test
+        datarow = datarow + list(ks) # add KS values (6)
+    
+    mean_df = t_prop.groupby('behavior').mean('y_prop')
+    mean_val = list(mean_df.ypred_prop.values)
+    datarow = datarow + mean_val
+    names = ['feature','lookback','accuracy','precision','recall','f1', 
+            'accuracy_f','accuracy_r','accuracy_s','accuracy_t',
+            'f1_f','f1_r','f1_s','f1_t',
+            'precision_f','precision_r','precision_s','precision_t',
+            'recall_f','recall_r','recall_s','recall_t',
+            'roc_weight', 'roc_micro','roc_macro',
+            'pr_weight','pr_macro', 'cat_loss',
+            'accuracy_3','precision_3','recall_3','f1_3',
+            'FF','FR','FS','FT','RF','RR','RS','RT',
+            'SF','SR','SS','ST','TF','TR','TS','TT',
+            'F_pred','R_pred','S_pred','T_pred',
+            'KSD_F','KSP_F','KSD_R','KSP_R',
+            'KSD_S','KSP_S','KSD_T','KSP_T',
+            'F_prop','R_prop','S_prop','T_prop']
+    datarow = DataFrame(datarow, index = names).transpose()
+    return datarow
 
-def perm_importance(model, datarow, eval_X, test_dft, y_label,name):
+def perm_behavior(model, df, test_X, test_dft, test_y, y_label, seed, name, path, prob = True):
+    """
+    permutate each behavior in each timestep and recalcualte performance metrics
+
+    Parameters
+    ----------
+    model : tensor network,
+        model
+    df : dataframe,
+        original performance metrics (non-permuted)
+    test_X : array,
+        testing features
+    test_dft : array,
+        testing deterministic features
+    test_y : array,
+        testing targets (one-hot encoded)
+    y_label : array,
+        testing targets, labelled 
+    seed : int,
+        random seed
+    name : str, 
+        filename to save
+    path: str,
+        path directory to save
+    prob: bool, optional
+        True when prediction draw from probilities, False when prediction taken as highest probability. The default is True
+ 
+    Returns
+    -------
+    df : TYPE
+        DESCRIPTION.
+
+    """
     # list feature names
-    feature_names = ['behavior','reproduction','sex','length','position','flower_count','fruit_count',
-                     'year','since_rest','since_feed','since_travel','adults','infants',
-                     'juveniles','rain','temperature', 'minutes','doy']
-  #  start_time = time.time()
-    colnames = ['model','accuracy','precision','recall','f1_score',
-                'acc_f','acc_r','acc_s','acc_t','f1_f','f1_r','f1_s','f1_t',
-                'precision_f','precision_r','precision_s','precision_t',
-                'recall_f','recall_r','recall_s','recall_t','auc_macro','auc_weighted','auc_ovr',
-                'acc_3','f1_3','precision_3','recall_3', 
-                'FF','FR','FS','FT','RF','RR','RS','RT','SF','SR','SS','ST','TF','TR','TS','TT',
-                'F_pred','R_pred','S_pred','T_pred','KSD_F','KSP_F','KSD_R','KSP_R','KSD_S',
-                'KSP_S','KSD_T','KSP_T','F_prop','R_prop','S_prop','T_prop','feature','lookback']
-    
-    # list feature names
-    datarow.extend(['original',0])
-    df = pd.DataFrame(columns = colnames)
-    df.loc[len(df.index)]= datarow
-    
+    feature_names = {'behavior': [0,4]}                    
     # for each lookback period
-    for t in range(0,(eval_X.shape[1])):
-        counter = 0 # start counter for feature name
-        # run for behavior
-        eval_X_copy = perm_feat(0,4,t,eval_X)
-        perm_output = perm_assess(model, eval_X_copy, y_label)
-        datarow = algo_var(perm_output[0],perm_output[1], y_label, test_dft, name, n_output = 1)
-        datarow.extend([feature_names[counter], (eval_X.shape[1]-t)])
-        df.loc[len(df.index)]= datarow
-    #    print(feature_names[counter], t)
-        counter +=1
-        
-        # run for reproduction
-        eval_X_copy = perm_feat(4,8,t,eval_X) # reproduction
-        perm_output = perm_assess(model, eval_X_copy, y_label)
-        datarow = algo_var(perm_output[0],perm_output[1], y_label, test_dft, name, n_output = 1)
-        datarow.extend([feature_names[counter], (eval_X.shape[1]-t)])
-        df.loc[len(df.index)]= datarow
-    #    print(feature_names[counter], t)
-        counter +=1
-        
-        single_var = itertools.chain(range(8,14), range(18,26))
-        for f in single_var:
-            # do single permutations
-            eval_X_copy = perm_feat(f,f+1,t,eval_X)
-            perm_output = perm_assess(model, eval_X_copy, y_label)
-            datarow = algo_var(perm_output[0],perm_output[1], y_label, test_dft, name, n_output = 1)
-            datarow.extend([feature_names[counter], (eval_X.shape[1]-t)])
-            df.loc[len(df.index)]= datarow
-         #   print(feature_names[counter], t)
-            counter +=1
-        
-        eval_X_copy = perm_feat(14,16,t,eval_X) # minutes
-        perm_output = perm_assess(model, eval_X_copy, y_label)
-        datarow = algo_var(perm_output[0],perm_output[1], y_label, test_dft, name, n_output = 1)
-        datarow.extend([feature_names[counter], (eval_X.shape[1]-t)])
-        df.loc[len(df.index)]= datarow
-    #    print(feature_names[counter], t)
-        counter +=1
+    for t in range(0,(test_X.shape[1])):
+        for key in feature_names:
+            eval_X_copy = perm_feat(feature_names[key][0], feature_names[key][1], t, test_X)
+            y_pred, y_prob, y_predmax = perm_assess(model, eval_X_copy)
+            drow = algo_var(test_y, test_dft, y_label, y_pred, y_predmax, y_prob, key, str(t), prob = prob)
+            df = pd.concat([df,drow], axis = 0, ignore_index=True)    
+            print (key + ' timestep: ' + str(t))
     
-        eval_X_copy = perm_feat(16,18,t,eval_X) # doy
-        perm_output = perm_assess(model, eval_X_copy, y_label)
-        datarow = algo_var(perm_output[0],perm_output[1], y_label, test_dft, name, n_output = 1)
-        datarow.extend([feature_names[counter], (eval_X.shape[1]-t)])
-        df.loc[len(df.index)]= datarow
-     #   print(feature_names[counter], t)
-        counter +=1
+    df['ID'] = seed                             
+    df = df.iloc[:,np.r_[df.shape[1],0:df.shape[1]]] # make sure ID is first column
+    df.to_csv(path + name + '_' + str(seed) + '.csv')
     return df
 
-def perm_imp_behavior(model, datarow, eval_X, test_dft, y_label,name):
-    # list feature names
-    feature_names = ['behavior']
-  #  start_time = time.time()
-    colnames = ['model','accuracy','precision','recall','f1_score',
-                'acc_f','acc_r','acc_s','acc_t','f1_f','f1_r','f1_s','f1_t',
-                'precision_f','precision_r','precision_s','precision_t',
-                'recall_f','recall_r','recall_s','recall_t','auc_macro','auc_weighted','auc_ovr',
-                'acc_3','f1_3','precision_3','recall_3', 
-                'FF','FR','FS','FT','RF','RR','RS','RT','SF','SR','SS','ST','TF','TR','TS','TT',
-                'F_pred','R_pred','S_pred','T_pred','KSD_F','KSP_F','KSD_R','KSP_R','KSD_S',
-                'KSP_S','KSD_T','KSP_T','F_prop','R_prop','S_prop','T_prop','feature','lookback']
-    
-    # list feature names
-    datarow.extend(['original',0])
-    df = pd.DataFrame(columns = colnames)
-    df.loc[len(df.index)]= datarow
-    
-    # for each lookback period
-    for t in range(0,(eval_X.shape[1])):
-        counter = 0 # start counter for feature name
-        # run for behavior
-        eval_X_copy = perm_feat(0,4,t,eval_X)
-        perm_output = perm_assess(model, eval_X_copy, y_label)
-        datarow = algo_var(perm_output[0],perm_output[1], y_label, test_dft, name, n_output = 1)
-        datarow.extend([feature_names[counter], (eval_X.shape[1]-t)])
-        df.loc[len(df.index)]= datarow
-    #    print(feature_names[counter], t)
-        counter +=1
-    
-    return df
-        
-def perm_imp_extrinsic(model, datarow, eval_X, test_dft, y_label,name):
-    # list feature names
-    feature_names = ['reproduction','sex','flower_count','fruit_count',
-                     'year','adults','infants',
-                     'juveniles','rain','temperature', 'minutes','doy']
-  #  start_time = time.time()
-    colnames = ['model','accuracy','precision','recall','f1_score',
-                'acc_f','acc_r','acc_s','acc_t','f1_f','f1_r','f1_s','f1_t',
-                'precision_f','precision_r','precision_s','precision_t',
-                'recall_f','recall_r','recall_s','recall_t','auc_macro','auc_weighted','auc_ovr',
-                'acc_3','f1_3','precision_3','recall_3', 
-                'FF','FR','FS','FT','RF','RR','RS','RT','SF','SR','SS','ST','TF','TR','TS','TT',
-                'F_pred','R_pred','S_pred','T_pred','KSD_F','KSP_F','KSD_R','KSP_R','KSD_S',
-                'KSP_S','KSD_T','KSP_T','F_prop','R_prop','S_prop','T_prop','feature','lookback']
-    
-    # list feature names
-    datarow.extend(['original',0])
-    df = pd.DataFrame(columns = colnames)
-    df.loc[len(df.index)]= datarow
-    
-    # for each lookback period
-    for t in range(0,(eval_X.shape[1])):
-        counter = 0 # start counter for feature name 
-        # run for reproduction
-        eval_X_copy = perm_feat(4,8,t,eval_X) # reproduction
-        perm_output = perm_assess(model, eval_X_copy, y_label)
-        datarow = algo_var(perm_output[0],perm_output[1], y_label, test_dft, name, n_output = 1)
-        datarow.extend([feature_names[counter], (eval_X.shape[1]-t)])
-        df.loc[len(df.index)]= datarow
-    #    print(feature_names[counter], t)
-        counter +=1
-        
-        single_var = np.r_[8, 11:14, 22:27]
-        for f in single_var:
-            # do single permutations
-            eval_X_copy = perm_feat(f,f+1,t,eval_X)
-            perm_output = perm_assess(model, eval_X_copy, y_label)
-            datarow = algo_var(perm_output[0],perm_output[1], y_label, test_dft, name, n_output = 1)
-            datarow.extend([feature_names[counter], (eval_X.shape[1]-t)])
-            df.loc[len(df.index)]= datarow
-         #   print(feature_names[counter], t)
-            counter +=1
-        
-        eval_X_copy = perm_feat(14,16,t,eval_X) # minutes
-        perm_output = perm_assess(model, eval_X_copy, y_label)
-        datarow = algo_var(perm_output[0],perm_output[1], y_label, test_dft, name, n_output = 1)
-        datarow.extend([feature_names[counter], (eval_X.shape[1]-t)])
-        df.loc[len(df.index)]= datarow
-    #    print(feature_names[counter], t)
-        counter +=1
-    
-        eval_X_copy = perm_feat(16,18,t,eval_X) # doy
-        perm_output = perm_assess(model, eval_X_copy, y_label)
-        datarow = algo_var(perm_output[0],perm_output[1], y_label, test_dft, name, n_output = 1)
-        datarow.extend([feature_names[counter], (eval_X.shape[1]-t)])
-        df.loc[len(df.index)]= datarow
-     #   print(feature_names[counter], t)
-        counter +=1
-    return df
-      
+def perm_full(model, df, test_X, test_dft, test_y, y_label, seed, name, path, prob = True):
+    """
+    permutate each feature in each timestep and recalcualte performance metrics
 
-def full_lb(model, params, train_X, train_y, test_X, test_y, name, covtype = 'full'):
+    Parameters
+    ----------
+    model : tensor network,
+        model
+    df : dataframe,
+        original performance metrics (non-permuted)
+    test_X : array,
+        testing features
+    test_dft : array,
+        testing deterministic features
+    test_y : array,
+        testing targets (one-hot encoded)
+    y_label : array,
+        testing targets, labelled 
+    seed : int,
+        random seed    
+    name : str, 
+        filename to save
+    path: str,
+        path directory to save
+    prob: bool, optional
+        True when prediction draw from probilities, False when prediction taken as highest probability. The default is True
+ 
+    Returns
+    -------
+    df : TYPE
+        DESCRIPTION.
+
+    """
+    # list feature names
+    feature_names = {'behavior': [0,4],
+                     'since_rest': [4,5],
+                     'since_feed': [5,6],
+                     'since_travel': [6,7],
+                     'sex': [7,8],
+                     'reproduction': [8,12], 
+                     'fragment': [12,13], 
+                     'rain': [13,14], 
+                     'temperature': [14,15], 
+                     'flower_count': [15,16],
+                     'fruit_count': [16,17],
+                     'years': [17,18], 
+                     'minutes': [18,20],
+                     'doy': [20,22], 
+                     'adults': [22,23], 
+                     'infants': [23,24], 
+                     'juveniles': [24,25], 
+                     'individual_continuity':[25,26],
+                     'length':[26,27], 
+                     'position':[27,28]}
+                    
+    # for each lookback period
+    for t in range(0,(test_X.shape[1])):
+        for key in feature_names:
+            eval_X_copy = perm_feat(feature_names[key][0], feature_names[key][1], t, test_X)
+            y_pred, y_prob, y_predmax = perm_assess(model, eval_X_copy)
+            drow = algo_var(test_y, test_dft, y_label, y_pred, y_predmax, y_prob, key, str(t), prob = prob)
+            df = pd.concat([df,drow], axis = 0, ignore_index=True)  
+            print (key + ' timestep: ' + str(t))
+    df.to_csv(path + name + '.csv')
+    return df
+
+def perm_internal(model, df, test_X, test_dft, test_y, y_label, seed, name, path, prob = True):
+    """
+    permutate each internal feature in each timestep and recalcualte performance metrics
+
+    Parameters
+    ----------
+    model : tensor network,
+        model
+    df : dataframe,
+        original performance metrics (non-permuted)
+    test_X : array,
+        testing features
+    test_dft : array,
+        testing deterministic features
+    test_y : array,
+        testing targets (one-hot encoded)
+    y_label : array,
+        testing targets, labelled 
+    seed : int,
+        random seed
+    name : str, 
+        filename to save
+    path: str,
+        path directory to save
+    prob: bool, optional
+        True when prediction draw from probilities, False when prediction taken as highest probability. The default is True
+ 
+    Returns
+    -------
+    df : TYPE
+        DESCRIPTION.
+
+    """
+    # list feature names
+    feature_names = {'behavior': [0,4],
+                     'since_rest': [4,5],
+                     'since_feed': [5,6],
+                     'since_travel': [6,7],
+                     'sex': [7,8],
+                     'reproduction': [8,12]}
+                    
+    # for each lookback period
+    for t in range(0,(test_X.shape[1])):
+        for key in feature_names:
+            eval_X_copy = perm_feat(feature_names[key][0], feature_names[key][1], t, test_X)
+            y_pred, y_prob, y_predmax = perm_assess(model, eval_X_copy)
+            drow = algo_var(test_y, test_dft, y_label, y_pred, y_predmax, y_prob, key, str(t), prob = prob)
+            df = pd.concat([df,drow], axis = 0, ignore_index=True)  
+            print (key + ' timestep: ' + str(t))
+    df.to_csv(path + name + '.csv')
+    return df
+
+def perm_external(model, df, test_X, test_dft, test_y, y_label, name, path, prob = True):
+    """
+    permutate each external feature in each timestep and recalcualte performance metrics
+
+    Parameters
+    ----------
+    model : tensor network,
+        model
+    df : dataframe,
+        original performance metrics (non-permuted)
+    test_X : array,
+        testing features
+    test_dft : array,
+        testing deterministic features
+    test_y : array,
+        testing targets (one-hot encoded)
+    y_label : array,
+        testing targets, labelled 
+    seed : int,
+        random seed
+    name : str, 
+        filename to save
+    path: str,
+        path directory to save
+    prob: bool, optional
+        True when prediction draw from probilities, False when prediction taken as highest probability. The default is True
+ 
+    Returns
+    -------
+    df : TYPE
+        DESCRIPTION.
+
+    """
+    # list feature names
+    feature_names = {'reproduction': [0,4], 
+                     'fragment': [4,5], 
+                     'rain': [5,6], 
+                     'temperature': [6,7], 
+                     'flower_count': [7,8],
+                     'fruit_count': [8,9],
+                     'years': [9,10], 
+                     'minutes': [10,12],
+                     'doy': [12,14], 
+                     'adults': [14,15], 
+                     'infants': [15,16], 
+                     'juveniles': [16,17]}
+                    
+    # for each lookback period
+    for t in range(0,(test_X.shape[1])):
+        for key in feature_names:
+            eval_X_copy = perm_feat(feature_names[key][0], feature_names[key][1], t, test_X)
+            y_pred, y_prob, y_predmax = perm_assess(model, eval_X_copy)
+            drow = algo_var(test_y, test_dft, y_label, y_pred, y_predmax, y_prob, key, str(t), prob = prob)
+            df = pd.concat([df,drow], axis = 0, ignore_index=True)  
+            print (key + ' timestep: ' + str(t))
+    df.to_csv(path + name + '.csv')
+    return df
+
+def full_lb(train, test, params, name, path, prob = True):
     """
     Fit and evaluate model n number of times. Get the average of those runs
 
@@ -1170,44 +1376,284 @@ def full_lb(model, params, train_X, train_y, test_X, test_y, name, covtype = 'fu
     avg_val: average of the metrics average: val_f1, val_loss, train_f1, train_loss 
     """
     rannum = random.randrange(1,200000,1)
-    seed(rannum)
-    # assign the weights 
-    weights = dict(zip([0,1,2,3], [params['weights_0'], params['weights_1'], params['weights_2'], params['weights_3']]))
+    random.seed(rannum)
+    # format training and testing data
+    train_X, train_y, train_dft, test_X, test_y, test_dft = train_test_format(train, test, params)
+    
+    targets = 4 # set number of targets (4 behavior classes)
+    features = test_X.shape[2] # get number of features 
+    
+    model = build_model_func(params, features, targets) # build model
+    
+    # assign class weights
+    weights = dict(zip([0,1,2,3], 
+                       [params['weights_0'], 
+                        params['weights_1'], 
+                        params['weights_2'], 
+                        params['weights_3']]))
     # assign the callback and weight type based on the model type
-    class_weights = weights # assign class weights as weights
-    
-    # fit the model 
-    history = model.fit(train_X, train_y, 
-                        epochs = params['epochs'],
-                        batch_size = params['batch_size'],
-                        verbose = 2,
-                        shuffle=False,
-                        class_weight = class_weights)
-    
-    y_prob = model.predict(test_X)
-    ypredmax = to_label(y_prob,'binom')
-    y_pred = to_label(y_prob)
-    y_label = to_label(test_y)
-
-    pred_array = np.column_stack((y_label, y_prob, y_pred, ypredmax))
-    pred_array = DataFrame(pred_array, columns = ['obs','f_prob','r_prob','s_prob','t_prob','pred','binom_pred'])
-    pred_array.to_csv('C:\\Users\\Jannet\\Documents\\Dissertation\\results\\behavior\\behavior_results\\'+name+'_predictions_'+str(rannum)+'.csv')
-    
-    drow = algo_var(y_pred, y_prob, y_label, test_dft, name, 1)
-   # start_time = time.time()
-    if covtype == 'full':
-        rnn_perm = perm_importance(model,drow, test_X, test_dft, y_label, name)
-    elif covtype == 'behavior':
-        rnn_perm = perm_imp_behavior(model,drow, test_X, test_dft, y_label, name)
+    if params['atype'] == 'VRNN':
+        class_weights = weights # assign class weights as weights
+        sample_weights = None
+    elif params['atype'] == 'ENDE':
+        class_weights = None 
+        sample_weights = get_sample_weights(train_y, weights) # generate the formatted sample weights 
     else:
-        rnn_perm = perm_imp_extrinsic(model,drow, test_X, test_dft, y_label, name)
+        raise Exception ('invalid model type')
         
-  #  print((time.time()-start_time)/60)
+    # fit the model 
+    history = model.fit(train_X, 
+                        train_y,
+                        epochs = params['max_epochs'], 
+                        batch_size = params['batch_size'],
+                        sample_weight = sample_weights,
+                        class_weight = class_weights,
+                        verbose = 2,
+                        shuffle=False)
+    
+    # get predictions
+    y_prob = model.predict(test_X)
+    y_label = to_label(test_y) # observed target
+    y_pred = to_label(y_prob, prob = True) # predicted target
+    y_predmax = to_label(y_prob, prob = False) # predicted target
+    
+    # merge data together, will be used to get daily distributions
+    results_df = np.column_stack((test_dft, y_label, y_pred, y_predmax, y_prob))
+    
+    # column names for merged data
+    names = ['sex', 'gestation', 'lactation', 'mating', 'nonreproductive',
+       'fragment', 'rain', 'temperature', 'flower_count', 'fruit_count',
+       'years', 'minutes_sin', 'minutes_cos', 'doy_sin', 'doy_cos', 'adults',
+       'infants', 'juveniles', 'individual_continuity', 'length', 'position',
+       'obs','pred','predmax','feed_prob','rest_prob','social_prob','travel_prob']
+     
+    # convert to dataframe
+    pred_df = DataFrame(results_df, columns = names)
+    
+    # save subset of results
+    pred_df.loc[:, ['obs','pred','predmax','feed_prob','rest_prob','social_prob','travel_prob', 'years', 'doy_sin','doy_cos']].to_csv(path + name +'_predictions_'+str(rannum)+'.csv')
+    
+    # calculate original metrics
+    df = algo_var(test_y, 
+                  test_dft, 
+                  y_label, 
+                  y_pred, 
+                  y_predmax, 
+                  y_prob, 
+                  'original', 
+                  prob = prob)
+           
+    if params['predictor'] == 'full':
+        rnn_perm = perm_full(model, 
+                                 df, 
+                                 test_X, 
+                                 test_dft, 
+                                 test_y, 
+                                 y_label, 
+                                 name + '_perm_importance', 
+                                 path, 
+                                 prob = prob)
+    elif params['predictor'] == 'full':
+        rnn_perm = perm_behavior(model, 
+                                 df, 
+                                 test_X, 
+                                 test_dft, 
+                                 test_y, 
+                                 y_label, 
+                                 name + '_perm_importance', 
+                                 path, 
+                                 prob = prob)
+    elif params['predictor'] == 'internal':
+        rnn_perm = perm_internal(model, 
+                                 df, 
+                                 test_X, 
+                                 test_dft, 
+                                 test_y, 
+                                 y_label, 
+                                 name + '_perm_importance', 
+                                 path, 
+                                 prob = prob)
+    elif params['predictor'] == 'external':
+        rnn_perm = perm_external(model, 
+                                 df, 
+                                 test_X, 
+                                 test_dft, 
+                                 test_y, 
+                                 y_label, 
+                                 name + '_perm_importance', 
+                                 path, 
+                                 prob = prob)
+    else:
+        raise Exception ('invalid predictor set')
+    
+     del history, model
+     return [rannum] + drow[0:60]
+
     rnn_perm['acc_diff'] = rnn_perm['accuracy']-rnn_perm['accuracy'][0]
-   # rnn_perm['acc_absdiff'] = abs(rnn_perm['acc_diff'])
- #   rnn_perm.sort_values(by = ['acc_absdiff'], axis=0, ascending=False, inplace = True)
-    rnn_perm['ID'] = rannum
-    rnn_perm = rnn_perm.iloc[:,np.r_[0,63,60:63,1:60]]
-    rnn_perm.to_csv('C:\\Users\\Jannet\\Documents\\Dissertation\\results\\behavior\\pvi_results\\'+name+'_perm_imp_'+str(rannum)+'.csv')
-    del history, model
-    return [rannum] + drow[0:60]
+   
+    # rnn_perm['acc_absdiff'] = abs(rnn_perm['acc_diff'])
+  #   rnn_perm.sort_values(by = ['acc_absdiff'], axis=0, ascending=False, inplace = True)
+  
+# def perm_importance(model, datarow, eval_X, test_dft, y_label, name):
+#     # list feature names
+#     feature_names = ['behavior','reproduction','sex','length','position','flower_count','fruit_count',
+#                      'year','since_rest','since_feed','since_travel','adults','infants',
+#                      'juveniles','rain','temperature', 'minutes','doy']
+#   #  start_time = time.time()
+#     colnames = ['model','accuracy','precision','recall','f1_score',
+#                 'acc_f','acc_r','acc_s','acc_t','f1_f','f1_r','f1_s','f1_t',
+#                 'precision_f','precision_r','precision_s','precision_t',
+#                 'recall_f','recall_r','recall_s','recall_t','auc_macro','auc_weighted','auc_ovr',
+#                 'acc_3','f1_3','precision_3','recall_3', 
+#                 'FF','FR','FS','FT','RF','RR','RS','RT','SF','SR','SS','ST','TF','TR','TS','TT',
+#                 'F_pred','R_pred','S_pred','T_pred','KSD_F','KSP_F','KSD_R','KSP_R','KSD_S',
+#                 'KSP_S','KSD_T','KSP_T','F_prop','R_prop','S_prop','T_prop','feature','lookback']
+    
+#     # list feature names
+#     datarow.extend(['original',0])
+#     df = DataFrame(columns = colnames)
+#     df.loc[len(df.index)]= datarow
+    
+#     # for each lookback period
+#     for t in range(0,(eval_X.shape[1])):
+#         counter = 0 # start counter for feature name
+#         # run for behavior
+#         eval_X_copy = perm_feat(0,4,t,eval_X)
+#         perm_output = perm_assess(model, eval_X_copy, y_label)
+#         datarow = algo_var(perm_output[0],perm_output[1], y_label, test_dft, name, n_output = 1)
+#         datarow.extend([feature_names[counter], (eval_X.shape[1]-t)])
+#         df.loc[len(df.index)]= datarow
+#     #    print(feature_names[counter], t)
+#         counter +=1
+        
+#         # run for reproduction
+#         eval_X_copy = perm_feat(4,8,t,eval_X) # reproduction
+#         perm_output = perm_assess(model, eval_X_copy, y_label)
+#         datarow = algo_var(perm_output[0],perm_output[1], y_label, test_dft, name, n_output = 1)
+#         datarow.extend([feature_names[counter], (eval_X.shape[1]-t)])
+#         df.loc[len(df.index)]= datarow
+#     #    print(feature_names[counter], t)
+#         counter +=1
+        
+#         single_var = itertools.chain(range(8,14), range(18,26))
+#         for f in single_var:
+#             # do single permutations
+#             eval_X_copy = perm_feat(f,f+1,t,eval_X)
+#             perm_output = perm_assess(model, eval_X_copy, y_label)
+#             datarow = algo_var(perm_output[0],perm_output[1], y_label, test_dft, name, n_output = 1)
+#             datarow.extend([feature_names[counter], (eval_X.shape[1]-t)])
+#             df.loc[len(df.index)]= datarow
+#          #   print(feature_names[counter], t)
+#             counter +=1
+        
+#         eval_X_copy = perm_feat(14,16,t,eval_X) # minutes
+#         perm_output = perm_assess(model, eval_X_copy, y_label)
+#         datarow = algo_var(perm_output[0],perm_output[1], y_label, test_dft, name, n_output = 1)
+#         datarow.extend([feature_names[counter], (eval_X.shape[1]-t)])
+#         df.loc[len(df.index)]= datarow
+#     #    print(feature_names[counter], t)
+#         counter +=1
+    
+#         eval_X_copy = perm_feat(16,18,t,eval_X) # doy
+#         perm_output = perm_assess(model, eval_X_copy, y_label)
+#         datarow = algo_var(perm_output[0],perm_output[1], y_label, test_dft, name, n_output = 1)
+#         datarow.extend([feature_names[counter], (eval_X.shape[1]-t)])
+#         df.loc[len(df.index)]= datarow
+#      #   print(feature_names[counter], t)
+#         counter +=1
+#     return df
+
+
+# def perm_imp_behavior(model, datarow, eval_X, test_dft, y_label,name):
+#     # list feature names
+#     feature_names = ['behavior']
+#   #  start_time = time.time()
+#     colnames = ['model','accuracy','precision','recall','f1_score',
+#                 'acc_f','acc_r','acc_s','acc_t','f1_f','f1_r','f1_s','f1_t',
+#                 'precision_f','precision_r','precision_s','precision_t',
+#                 'recall_f','recall_r','recall_s','recall_t','auc_macro','auc_weighted','auc_ovr',
+#                 'acc_3','f1_3','precision_3','recall_3', 
+#                 'FF','FR','FS','FT','RF','RR','RS','RT','SF','SR','SS','ST','TF','TR','TS','TT',
+#                 'F_pred','R_pred','S_pred','T_pred','KSD_F','KSP_F','KSD_R','KSP_R','KSD_S',
+#                 'KSP_S','KSD_T','KSP_T','F_prop','R_prop','S_prop','T_prop','feature','lookback']
+    
+#     # list feature names
+#     datarow.extend(['original',0])
+#     df = DataFrame(columns = colnames)
+#     df.loc[len(df.index)]= datarow
+    
+#     # for each lookback period
+#     for t in range(0,(eval_X.shape[1])):
+#         counter = 0 # start counter for feature name
+#         # run for behavior
+#         eval_X_copy = perm_feat(0,4,t,eval_X)
+#         perm_output = perm_assess(model, eval_X_copy, y_label)
+#         datarow = algo_var(perm_output[0],perm_output[1], y_label, test_dft, name, n_output = 1)
+#         datarow.extend([feature_names[counter], (eval_X.shape[1]-t)])
+#         df.loc[len(df.index)]= datarow
+#     #    print(feature_names[counter], t)
+#         counter +=1
+    
+#     return df
+        
+# def perm_imp_extrinsic(model, datarow, eval_X, test_dft, y_label,name):
+#     # list feature names
+#     feature_names = ['reproduction','sex','flower_count','fruit_count',
+#                      'year','adults','infants',
+#                      'juveniles','rain','temperature', 'minutes','doy']
+#   #  start_time = time.time()
+#     colnames = ['model','accuracy','precision','recall','f1_score',
+#                 'acc_f','acc_r','acc_s','acc_t','f1_f','f1_r','f1_s','f1_t',
+#                 'precision_f','precision_r','precision_s','precision_t',
+#                 'recall_f','recall_r','recall_s','recall_t','auc_macro','auc_weighted','auc_ovr',
+#                 'acc_3','f1_3','precision_3','recall_3', 
+#                 'FF','FR','FS','FT','RF','RR','RS','RT','SF','SR','SS','ST','TF','TR','TS','TT',
+#                 'F_pred','R_pred','S_pred','T_pred','KSD_F','KSP_F','KSD_R','KSP_R','KSD_S',
+#                 'KSP_S','KSD_T','KSP_T','F_prop','R_prop','S_prop','T_prop','feature','lookback']
+    
+#     # list feature names
+#     datarow.extend(['original',0])
+#     df = DataFrame(columns = colnames)
+#     df.loc[len(df.index)]= datarow
+    
+#     # for each lookback period
+#     for t in range(0,(eval_X.shape[1])):
+#         counter = 0 # start counter for feature name 
+#         # run for reproduction
+#         eval_X_copy = perm_feat(4,8,t,eval_X) # reproduction
+#         perm_output = perm_assess(model, eval_X_copy, y_label)
+#         datarow = algo_var(perm_output[0],perm_output[1], y_label, test_dft, name, n_output = 1)
+#         datarow.extend([feature_names[counter], (eval_X.shape[1]-t)])
+#         df.loc[len(df.index)]= datarow
+#     #    print(feature_names[counter], t)
+#         counter +=1
+        
+#         single_var = np.r_[8, 11:14, 22:27]
+#         for f in single_var:
+#             # do single permutations
+#             eval_X_copy = perm_feat(f,f+1,t,eval_X)
+#             perm_output = perm_assess(model, eval_X_copy, y_label)
+#             datarow = algo_var(perm_output[0],perm_output[1], y_label, test_dft, name, n_output = 1)
+#             datarow.extend([feature_names[counter], (eval_X.shape[1]-t)])
+#             df.loc[len(df.index)]= datarow
+#          #   print(feature_names[counter], t)
+#             counter +=1
+        
+#         eval_X_copy = perm_feat(14,16,t,eval_X) # minutes
+#         perm_output = perm_assess(model, eval_X_copy, y_label)
+#         datarow = algo_var(perm_output[0],perm_output[1], y_label, test_dft, name, n_output = 1)
+#         datarow.extend([feature_names[counter], (eval_X.shape[1]-t)])
+#         df.loc[len(df.index)]= datarow
+#     #    print(feature_names[counter], t)
+#         counter +=1
+    
+#         eval_X_copy = perm_feat(16,18,t,eval_X) # doy
+#         perm_output = perm_assess(model, eval_X_copy, y_label)
+#         datarow = algo_var(perm_output[0],perm_output[1], y_label, test_dft, name, n_output = 1)
+#         datarow.extend([feature_names[counter], (eval_X.shape[1]-t)])
+#         df.loc[len(df.index)]= datarow
+#      #   print(feature_names[counter], t)
+#         counter +=1
+#     return df
+      
+

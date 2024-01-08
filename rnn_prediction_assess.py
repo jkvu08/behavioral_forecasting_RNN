@@ -74,6 +74,10 @@ vrnn_params = {'atype': 'VRNN',
               'weights_2': 9,
               'weights_3': 5}
 
+# seet random seed 
+seed = 10
+random.seed(seed)
+
 results = bmf.model_assess(train = train,
                            test = test,
                            params = vrnn_params)
@@ -85,91 +89,128 @@ results.keys()
 #            'train_y', 'test_X', 'test_y', 
 #            'y_pred', 'y_prob', 'evals', 'params'])
 
-# Model assessment
-# def model_assess(params): 
-#     """
-#     Assess a single model
-    
-#     Arguments:
-#         params: hyperparameter set
-# 	Returns:
-#         'model': model
-#         'history': fitted model results
-#         'confusion_matrix': confusion matrix
-#         'report': classification report
-#         'predictions': the deterministic features for the prediction timestep
-#         'train_X': training features
-#         'train_y': training targets
-#         'test_X': testing features
-#         'test_y': testing targets
-#         'y_label': testing labeled values
-        
-# 	"""
-#     start_time = time.time()
-#     # assign number of features, targets and class weights
-#     X, y, dft = to_supervised(datasub.iloc[:,[0,2,3,1,5]],rano_clim.loc[:,params['covariates']],kian_clim.loc[:,params['covariates']],params['lookback'], params['lag'],'fruit')   
-#     # split dataset
-#     train_X, test_X, y_train, y_test, train_dft, test_dft = train_test_split(np.array(X), np.array(y), np.array(dft), test_size=DATA_SPLIT_PCT, random_state=params['seed'],stratify =np.array(y))
+# examine performance metrics
+results['report']
+#               precision    recall  f1-score      support
+# 0              0.246216  0.308081  0.273696   792.000000
+# 1              0.888285  0.682460  0.771887  6944.000000
+# 2              0.013699  0.080460  0.023411    87.000000
+# 3              0.129133  0.335494  0.186486   617.000000
+# accuracy       0.615758  0.615758  0.615758     0.615758
+# macro avg      0.319333  0.351624  0.313870  8440.000000
+# weighted avg   0.763521  0.615758  0.674627  8440.000000
 
-#     if params['hs'] == 'hidden':
-#         model = build_hrnn(params)
-#     #    model.summary()
-#     elif params['hs'] == 'stacked':
-#         model = build_srnn(params)
-#        # model.summary()
-#     else:
-#         print('architecture not satisfied')
-#         exit()
-    
-#     results = model.fit(train_X, y_train, 
-#                        epochs = int(params['epochs']), 
-#                        batch_size = int(params['batch']),
-#                        verbose = 2,
-#                        shuffle=False)
-    
-#     y_prob = model.predict(test_X)
-#     y_pred = np.random.binomial(1, y_prob)
-#     loss = log_loss(y_test, y_prob)
-#     cm = confusion_matrix(y_test,y_pred) # generate confusion matrix
-#     class_rep = class_report(y_test,y_pred) # generate classification reports
-#     pr_auc = average_precision_score(y_test, y_prob)
-#     roc_auc = roc_auc_score(y_test, y_prob)
-    
-#     fig, axis = plt.subplots(1,4,figsize=(18,4))
-#     plt.subplot(1,4,1)
-#     confusion_mat(y_test,y_pred, LABELS = LABELS, normalize = 'true')
-#     plt.subplot(1,4,2)
-#     confusion_mat(y_test,y_pred, LABELS = LABELS, normalize = None)
-#     plt.subplot(1, 4, 3) 
-#     roc_plot(y_test, y_prob) # roc curve
-#     plt.subplot(1, 4, 4)  
-#     pr_plot(y_test, y_prob) # precision recall curve
-#     plt.show()
-#     fig.tight_layout() 
-    
-#     class_rep = class_report(y_test,y_pred) # generate classification report
-    
-    
-#     # add y and ypred to the curent covariate features
-#     test_dft = np.column_stack((test_dft, y_test, y_pred))
-    
-#     print('took', (time.time()-start_time)/60, 'minutes') # print the time lapsed 
-#     #return the relevant information for comparing hyperparameter trials
-#     return {'model': model,
-#             'history': results,
-#             'confusion_matrix': cm, 
-#             'report': class_rep, 
-#             'predictions': test_dft,
-#             'train_X': train_X,
-#             'train_y': y_train,
-#             'test_X': test_X,
-#             'test_y': y_test,
-#             'y_pred': y_pred,
-#             'y_prob': y_prob,
-#             'evals': [loss, pr_auc, roc_auc],
-#             'params': params
-#             }
- 
+# get daily proportion of behaviors
+daily_prob = bmf.daily_dist(results['predictions'])
+
+# plot results 
+daily_plot = bmf.daily_dist_plot(daily_prob)
+daily_plot.savefig(path+'rnn_val_f1max_daily_prob_plot.jpg', dpi=150) # save monitoring plot and examine in output file
+
+# permutation feature importance sensitivity analysis
+# permuate each feature in each lookback to see how the feature x lookback affects the prediction outcomes
+perm_df = bmf.algo_var(results['test_y'], 
+                  results['test_dft'], 
+                  results['y_label'], 
+                  results['y_pred'], 
+                  results['y_predmax'], 
+                  results['y_prob'], 
+                  'original', 
+                  prob = True)
+
+# View original metrics 
+perm_df.iloc[0,:]
+# feature        original
+# lookback            NaN
+# accuracy       0.618483
+# precision      0.319312
+# recall         0.344875
+# f1                0.315
+# accuracy_f     0.841232
+# accuracy_r     0.668365
+# accuracy_s     0.928199
+# accuracy_t     0.799171
+# f1_f           0.283422
+# f1_r           0.772198
+# f1_s           0.006557
+# f1_t           0.197823
+# precision_f    0.245826
+# precision_r    0.887891
+# precision_s    0.003824
+# precision_t    0.139706
+# recall_f       0.334596
+# recall_r        0.68318
+# recall_s       0.022989
+# recall_t       0.338736
+# roc_weight     0.705982
+# roc_micro      0.740802
+# roc_macro      0.742573
+# pr_weight      0.394006
+# pr_macro       0.825516
+# cat_loss       0.629123
+# accuracy_3     0.769589
+# precision_3    0.424474
+# recall_3       0.452171
+# f1_3           0.417815
+# FF                  265
+# FR                  277
+# FS                   49
+# FT                  201
+# RF                  687
+# RR                 4744
+# RS                  445
+# RT                 1068
+# SF                   14
+# SR                   53
+# SS                    2
+# ST                   18
+# TF                  112
+# TR                  269
+# TS                   27
+# TT                  209
+# F_pred             1078
+# R_pred             5343
+# S_pred              523
+# T_pred             1496
+# KSD_F          0.141186
+# KSP_F               0.0
+# KSD_R          0.329953
+# KSP_R               0.0
+# KSD_S          0.209048
+# KSP_S               0.0
+# KSD_T           0.25741
+# KSP_T               0.0
+# F_prop         0.137668
+# R_prop         0.631657
+# S_prop         0.060561
+# T_prop         0.170114
+# Name: 0, dtype: object
+
+# run permutation sensitivity analysis
+perm_df = bmf.perm_behavior(results['model'], 
+                     perm_df, 
+                     results['test_X'], 
+                     results['test_dft'], 
+                     results['test_y'], 
+                     results['y_label'], 
+                     seed = seed,
+                     name = 'perm_imp_vrnn_catloss', 
+                     path = path,
+                     prob = False)
+
+# print sample of output
+perm_df.head()
+#     feature lookback  accuracy  ...    R_prop    S_prop    T_prop
+# 0  original      NaN  0.618483  ...  0.631657  0.060561  0.170114
+# 1  behavior        0  0.622749  ...  0.805575       0.0  0.102174
+# 2  behavior        1  0.614218  ...  0.805575       0.0  0.102206
+# 3  behavior        2  0.616706  ...  0.805575       0.0  0.102174
+# 4  behavior        3  0.611493  ...  0.805575       0.0  0.102174
+
+# visualize results
+
+
+
 # Permutation analysis
 def pi_info(cm, report, evals, feature, lookback):
     """
