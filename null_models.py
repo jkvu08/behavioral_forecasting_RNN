@@ -5,327 +5,252 @@ Created on Mon Sep 27 10:09:47 2021
 @author: Jannet
 """
 # Load libraries
-import numpy as np
-from numpy import random, newaxis
-from matplotlib import pyplot
+# Load libraries
+import os
 import pandas as pd
-from pandas import read_csv, DataFrame, concat, Series, merge
-from sklearn.metrics import confusion_matrix, classification_report, ConfusionMatrixDisplay, mean_squared_error, f1_score
-from sklearn.model_selection import StratifiedKFold, cross_val_score
-from sklearn.utils import class_weight
-from sklearn.preprocessing import LabelEncoder
-import os, time, itertools, random, logging
-#from sklearn.inspection import permutation_importance
-import tensorflow as tf
-from tensorflow.keras.layers import Dense, Dropout, LSTM, Masking, GRU, Conv1D, Activation, RepeatVector, TimeDistributed, Flatten, MaxPooling1D, ConvLSTM2D
-#from tensorflow.keras.preprocessing import sequence
-from tensorflow.keras.optimizers import Adam
-from tensorflow.keras.models import Sequential, Model
-from tensorflow_addons.metrics import F1Score
-#from tensorflow.keras.utils import to_categorical
-# import CategoricalAccuracy, CategoricalCrossentropy
-#from tensorflow.compat.v1.keras.layers import mean_per_class_accuracy
-from tensorflow.keras.wrappers.scikit_learn import KerasClassifier
-from tensorflow.keras.callbacks import EarlyStopping
-from keras.callbacks import Callback
-import keras.backend as K
-from hyperopt import hp,fmin,tpe,STATUS_OK,Trials
-from hyperopt.pyll.base import scope
-from hyperopt.early_stop import no_progress_loss
-from numba import cuda
-#import pickle
-import joblib
-import seaborn as sns
-import ray
-from operator import itemgetter
-import scipy
-from scipy import stats
-import threading
-from threading import Thread
-import concurrent.futures
+from pandas import read_csv
 
-# Data formatting
-def split_dataset(data, years):
-    """
-    Training and test data split based on year. 
-    Parameters
-    ----------
-    data : full dataset
-    years : training-testing year cut off (training inclusive)
-    -------
-    train : Training data subset
-    test : Testing data subset
-    """
-    train = data[data["year"] <= years] # get years that are equal or less than year used for training
-    test = data[data["year"] > years] # get years that greater than year used for training cut off
-    return train, test
+######################
+#### Data Import #####
+######################
+# set working directory
+os.chdir("C:\\Users\\Jannet\\Documents\\Dissertation\\codes\\behavioral_forecasting_RNN")
+# set directory for saving results
+path = "C:\\Users\\Jannet\\Documents\\Dissertation\\codes\\behavioral_forecasting_RNN\\outputs\\"
 
-def to_supervised(data, TID, window, lookback, n_output=7):
-    """
-    Format training data for multivariate, multistep time series prediction models
+# import packages from file
+import behavior_model_func as bmf
 
-    Parameters
-    ----------
-    data : data
-    lookback : lookback period
-    n_output : prediction timesteps. The default is 7.
-    window : sliding window size
-    Returns
-    -------
-    X : features data in array format (input)
-    y : target data in array format (output)
-    dft: deterministic features for prediction timesteps in array formate
+# import datafiles
+train =  read_csv('kian_trainset_focal.csv', 
+                    header = 0, 
+                    index_col = 0)
 
-    """
-    data = np.array(data) # convert data into numpy array
-    X, y, dft = list(), list(), list() # get empty list for X (all features), y (targets), dft (deterministic features in prediction time steps)
-    in_start = 0 # set start index as 0
-	# step over the entire dataset one time step at a time
-    for _ in range(len(data)):
-        in_end = in_start + lookback # define the end of the input sequence
-        out_end = in_end + n_output # define the end of the output sequence
-		# ensure we have enough data left in the data and track for this instance 
-        if out_end <= len(data) and len(set(TID[in_start:out_end])) == 1:
-            X.append(data[in_start:in_end, :]) # append input sequence to features list
-            y.append(data[in_end:out_end, 0:4]) # append output to the targets list
-            dft.append(data[in_end:out_end,4:18]) # append the deterministic features for current timestep to the deterministic features list
-        in_start += window # move along one time step
-    X = np.array(X) # convert list to array
-    y = np.array(y) # convert list to array
-    dft = np.array(dft) # convert list to array
-    a = np.where(np.min(y[:,:,0],axis = 1)==-1) # extract the indexes with rows that have unknown targets (i.e., values == -1)
-    X = np.delete(X,a[0],axis =0) # delete unknown target rows
-    y = np.delete(y,a[0],axis =0) # delete unknown target rows
-    dft = np.delete(dft,a[0],axis =0) # delete unknown target rows
-    if y.shape[1] == 1: # if the target is a single timestep
-        y = y.reshape((y.shape[0],y.shape[2])) # then reshape the target 3D data to 2D
-        dft = dft.reshape((dft.shape[0],dft.shape[2])) # also reshape the deterministic feat from 3D to 2D data 
-    return X, y, dft 
+test =  read_csv('kian_testset_focal.csv', 
+                    header = 0, 
+                    index_col = 0)
 
-def one_hot_decode(encoded_seq):
-    """
-    Reverse one_hot encoding
-    Arguments:
-        encoded_seq: array of one-hot encoded data 
-	Returns:
-		series of labels
-	"""
-    pred = [np.random.multinomial(1,vector) for vector in encoded_seq]
-    return [np.argmax(vector) for vector in pred] # returns the index with the max value
+# subset and reorder predictors
+train = train[['ID', 'TID', 'track_position', 'track_length', 'focal', 'year', # identifiers
+                   'feed', 'rest', 'social', 'travel', # behaviors         
+                   'since_rest', 'since_feed', 'since_travel', 'sex', # internal features  
+                   'gestation', 'lactation', 'mating', 'nonreproductive', # internal or external features - reproductive state can be both
+                   'fragment', 'rain', 'temperature', 'flower_count', 'fruit_count', # external features
+                   'years', 'minutes_sin', 'minutes_cos', 'doy_sin','doy_cos', # external/time features
+                   'adults', 'infants', 'juveniles', # external/group features
+                   'individual_continuity', 'length', 'position']] # sampling features 
 
-def to_label(data):
+test = test[['ID', 'TID', 'track_position', 'track_length', 'focal', 'year', # identifiers
+                   'feed', 'rest', 'social', 'travel', # behaviors         
+                   'since_rest', 'since_feed', 'since_travel', 'sex', # internal features  
+                   'gestation', 'lactation', 'mating', 'nonreproductive', # internal or external features - reproductive state can be both
+                   'fragment', 'rain', 'temperature', 'flower_count', 'fruit_count', # external features
+                   'years', 'minutes_sin', 'minutes_cos', 'doy_sin','doy_cos', # external/time features
+                   'adults', 'infants', 'juveniles', # external/group features
+                   'individual_continuity', 'length', 'position']] # sampling features 
+
+# parameters
+vrnn_params = {'atype': 'VRNN',
+              'mtype': 'GRU',
+              'lookback': 22, 
+              'n_outputs': 1,
+              'predictor':'behavior',
+              'hidden_layers': 1,
+              'neurons_n': 20,
+              'hidden_n0': 50,
+              'hidden_n1': 10,
+              'learning_rate': 0.001,
+              'dropout_rate': 0.1,               
+              'loss': True,
+              'max_epochs': 100,
+              'batch_size': 512,
+              'weights_0': 2.5,
+              'weights_1': 1,
+              'weights_2': 9,
+              'weights_3': 5}
+
+# format training and testing data
+train_X, train_y, train_dft, test_X, test_y, test_dft = bmf.train_test_format(train, test, vrnn_params)
     
-    """
-    Gets the index of the maximum value in each row. Can be used to transform one-hot encoded data to labels or probabilities to labels
-    Parameters
-    ----------
-    data : one-hot encoded data or probability data
+# generate predictions from activity distribution probabilities
+act_dist = bmf.null_mod(train_y, test_y, test_dft, 'act_dist22')
 
-    Returns
-    -------
-    y_label : label encoded data
+# print results 
+act_dist.iloc[0,:]
 
-    """
-    if len(data.shape) == 2: # if it is a one timestep prediction
-        y_label = np.array(one_hot_decode(data)) # then one-hot decode to get the labels
-    else: # otherwise 
-        y_label = [] # create an empty list for the labels
-        for i in range(data.shape[1]): # for each timestep
-            y_lab = one_hot_decode(data[:,i,:]) # one-hot decode
-            y_label.append(y_lab) # append the decoded value set to the list
-        y_label = np.column_stack(y_label) # stack the sets in the list to make an array where each column contains the decoded labels for each timestep
-    return y_label  # return the labels 
+# ID                  88359
+# feature        act_dist22
+# lookback              -99
+# accuracy         0.712085
+# precision        0.256086
+# recall           0.255005
+# f1               0.255182
+# accuracy_f       0.837204
+# accuracy_r        0.72891
+# accuracy_s       0.982109
+# accuracy_t       0.875948
+# f1_f              0.09127
+# f1_r             0.837638
+# f1_s             0.025806
+# f1_t             0.066012
+# precision_f      0.095833
+# precision_r      0.825686
+# precision_s      0.029412
+# precision_t      0.073413
+# recall_f         0.087121
+# recall_r         0.849942
+# recall_s         0.022989
+# recall_t         0.059968
+# roc_weight            0.5
+# roc_micro             0.5
+# roc_macro             0.5
+# pr_weight            0.25
+# pr_macro         0.691172
+# cat_loss         0.624536
+# accuracy_3       0.814021
+# precision_3      0.331644
+# recall_3         0.332344
+# f1_3              0.33164
+# FF                     69
+# FR                    658
+# FS                     10
+# FT                     55
+# RF                    588
+# RR                   5902
+# RS                     48
+# RT                    406
+# SF                      8
+# SR                     71
+# SS                      2
+# ST                      6
+# TF                     55
+# TR                    517
+# TS                      8
+# TT                     37
+# F_pred                720
+# R_pred               7148
+# S_pred                 68
+# T_pred              504.0
+# KSD_F            0.039782
+# KSP_F            0.262443
+# KSD_R            0.069423
+# KSP_R            0.004136
+# KSD_S            0.014821
+# KSP_S            0.998965
+# KSD_T            0.044462
+# KSP_T            0.158577
+# F_dprop          0.080742
+# R_dprop          0.852704
+# S_dprop          0.006873
+# T_dprop          0.059681
+# Name: 64, dtype: object
 
-def algo_var(y_pred, y_label, test_dft, name, n_output = 1):
-    """
-    Assess model performance, generate metrics and output as a row of data. 
-    Used to compare model performance between iterations
+# iterate multiple times
+for i in range(999):
+    null_pred = bmf.null_mod(train_y, test_y, test_dft, 'actdist_22')
+    act_dist = pd.concat([act_dist, null_pred], axis = 0, ignore_index =True)
+    print (i)
 
-    Parameters
-    ----------
-    y_pred: predictions
-    y_label: true values 
-    test_dft: dataframe with deterministic features and identifiers
-    name :  model name
-    n_output : number of outputs
-        DESCRIPTION. The default is 1.
+# save results
+act_dist.to_csv(path + 'actdist_22_performance_results.csv')
 
-    Returns
-    -------
-    datarow: output information for a single run 
+# generate predictions from transition activity distributions (Markov model)
+train_label = bmf.to_label(train_y, prob = False) # generate training labels
 
-    """
-    cm = confusion_matrix(y_label, y_pred) # plot confusion matrix
-    class_rep = classification_report(y_label,y_pred, zero_division = 0, output_dict = True) # generate classification reports
-    class_rep = DataFrame(class_rep).transpose() # convert dictionary to dataframe
+tmat = bmf.transition_matrix(train_X, train_y) # generate transition matrix
 
-    # add y and ypred to the curent covariate features
-    if n_output == 1:
-        test_dft = np.column_stack((test_dft, y_label, y_pred))
-    else:
-        test_dft = np.append(test_dft, y_label, axis = 2)
-        test_dft = np.append(test_dft, y_pred, axis = 2)
-    
-    datarow = [name,class_rep.iloc[4,0]] # add model name, accuracy (2)
-    datarow.extend(class_rep.iloc[5,0:3].tolist()) # overall precision, recall and f1 score (3)
-    f1 = class_rep.iloc[0:4,2].tolist()
-    prec = class_rep.iloc[0:4,0].tolist()
-    recall = class_rep.iloc[0:4,1].tolist()
-    metrics_3 = [np.mean(itemgetter(0,1,3)(f1)), np.mean(itemgetter(0,1,3)(prec)),np.mean(itemgetter(0,1,3)(recall))]
-    
-    datarow.extend(f1) # add categorical f1 score (4)
-    datarow.extend(prec) # add categorical precision (4)
-    datarow.extend(recall) # add categorical recall (4)
-    datarow.extend(metrics_3) # add metrics 3 (3)
-    conmat = np.reshape(cm,(1,16)) # add confusion matrix values (16)
-    datarow.extend(conmat.ravel().tolist())
-    datarow.extend(np.sum(cm,0).tolist())
-    t_prop = daily_dist(test_dft) # get the daily proportions
-    for i in [0,1,2,3]: 
-        ks = scipy.stats.ks_2samp(t_prop[t_prop['behavior'] == i].y_prop, t_prop[t_prop['behavior'] == i].ypred_prop, alternative = 'two_sided') # get the d statistics and p-values for the KS test
-        datarow.extend(list(ks)) # add KS values (6)
-    
-    mean_df = t_prop.groupby('behavior').mean('y_prop')
-    mean_val = mean_df.ypred_prop.values.tolist()
-    datarow.extend(mean_val)
-    print('working...')
-    return datarow
+# {0: [0.0929944203347799,
+#   0.8350898946063237,
+#   0.006819590824550527,
+#   0.06509609423434594],
+#  1: [0.08635767380848274,
+#   0.8535198950590293,
+#   0.009510275470048098,
+#   0.05061215566243988],
+#  2: [0.06329113924050633,
+#   0.8734177215189873,
+#   0.02531645569620253,
+#   0.0379746835443038],
+#  3: [0.08691499522445081,
+#   0.8299904489016237,
+#   0.007640878701050621,
+#   0.07545367717287488]}
 
-def null_mod(train_y, y_label, test_dft, name):
-    """
-    Generate null0 model predictions, which are drawn from the overall behavioral frequency distributions
-    Assess prediction performance
+markov_pred = bmf.markov_null(train_X, train_y, test_X, test_y, test_dft, 'markov_22')
 
-    Parameters
-    ----------
-    train_y : training y
-    y_label : testing y in label format
-    test_dft : deterministic features in testing dataset 
-    name : model name
+# view results
+markov_pred.iloc[0,:]
+# feature        markov_22
+# lookback             -99
+# accuracy         0.71564
+# precision         0.2563
+# recall          0.255183
+# f1              0.255262
+# accuracy_f      0.838033
+# accuracy_r      0.731517
+# accuracy_s      0.980806
+# accuracy_t      0.880924
+# f1_f            0.090486
+# f1_r            0.839541
+# f1_s            0.012195
+# f1_t            0.078827
+# precision_f      0.09564
+# precision_r     0.825857
+# precision_s     0.012987
+# precision_t     0.090717
+# recall_f        0.085859
+# recall_r        0.853687
+# recall_s        0.011494
+# recall_t        0.069692
+# roc_weight      0.511898
+# roc_micro       0.506491
+# roc_macro        0.51054
+# pr_weight       0.251755
+# pr_macro        0.693049
+# cat_loss        0.624796
+# accuracy_3      0.816825
+# precision_3     0.337405
+# recall_3        0.336412
+# f1_3            0.336285
+# FF                    68
+# FR                   673
+# FS                     8
+# FT                    43
+# RF                   572
+# RR                  5928
+# RS                    61
+# RT                   383
+# SF                     8
+# SR                    73
+# SS                     1
+# ST                     5
+# TF                    63
+# TR                   504
+# TS                     7
+# TT                    43
+# F_pred               711
+# R_pred              7178
+# S_pred                77
+# T_pred             474.0
+# KSD_F           0.048362
+# KSP_F           0.099717
+# KSD_R           0.072543
+# KSP_R           0.002342
+# KSD_S            0.00546
+# KSP_S                1.0
+# KSD_T           0.049142
+# KSP_T           0.090453
+# F_dprop          0.08137
+# R_dprop          0.85193
+# S_dprop         0.010009
+# T_dprop         0.056691
+# Name: 64, dtype: object
 
-    Returns
-    -------
-    drow : performance metrics as a vector
+# iterate multiple times
+for i in range(999):
+    null_pred = bmf.markov_null(train_X, train_y, test_X, test_y, test_dft, 'markov_22')
+    markov_pred = pd.concat([markov_pred, null_pred], axis = 0, ignore_index =True)
+    print (i)
 
-    """
-    train_ylab = to_label(train_y)
-    train_prop = np.unique(train_ylab, return_counts = True)
-    train_prop = train_prop[1]/len(train_ylab)
-    y_pred = np.random.choice(a=range(4),size=len(y_label),replace = True, p=train_prop)
-    drow = algo_var(y_pred, y_label, test_dft, name, 1)
-    return drow
-
-def transition_matrix(data):
-    """
-    Get transition matrix from data 
-    Parameters
-    ----------
-    data : values 
-
-    Returns
-    -------
-    M : transition matrixes 
-
-    """
-    transitions = data[:,1]
-    predictor = data[:,0]
-    n = 1+ max(transitions) #number of states
-
-    M = [[0]*n for _ in range(n)]
-
-    for (i,j) in zip(transitions,predictor):
-        M[i][j] += 1
-
-    #now convert to probabilities:
-    for row in M:
-        s = sum(row)
-        if s > 0:
-            row[:] = [f/s for f in row]
-    return M
-
-def markov_null(train_y, train_X, y_label, test_X, test_dft, name):
-    """
-    Generate null1 model predictions, which are drawn from the transition likelihood between behaviors
-    Assess prediction performance
-
-    Parameters
-    ----------
-    train_y : training targets
-    train_X : training features
-    y_label : testing targets in label format
-    test_dft : deterministic features in testing dataset 
-    name : model name
-
-    Returns
-    -------
-    drow : performance metrics as a vector
-
-    """
-    last_index = train_X.shape[1]-1
-    
-    a = np.where(train_X[:,last_index,0]==-1) # extract the indexes with rows that have unknown targets (i.e., values == -1)
-    train_X = np.delete(train_X,a[0],axis =0) # delete unknown target rows
-    train_y = np.delete(train_y,a[0],axis =0) # delete unknown target rows
-    
-    train_1 = to_label(train_y)
-    train_0 = to_label(train_X[:,last_index,0:4])
-    train_data = np.column_stack((train_0,train_1))
-    
-    test_1 = y_label
-    test_0 = to_label(test_X[:,last_index,0:4])
-    test_data = np.column_stack((test_0,test_1))
-    test_data = np.column_stack((test_data, np.repeat(5, len(test_data))))
-    
-    train_mat = transition_matrix(train_data)
-    
-    for j in range(0,4):
-        index = np.where(test_data[:,0] == j)
-        index = index[0]
-        test_data[index,2] = np.random.choice(range(4), len(index), replace = True, p = train_mat[j]) 
-    
-    y_pred = test_data[:,2]
-
-    drow = algo_var(y_pred, y_label, test_dft, name, 1)
-    return drow
-
-# import datafile
-dataset =  read_csv('data.csv', header = 0, index_col = 0) # VV only
-
-n_input = 5
-n_output = 1
-
-train, test = split_dataset(dataset, 2015) # split data 
-train_X, train_y, train_dft = to_supervised(train, train['TID'],1, n_input, n_output) # format training data
-test_X, test_y, test_dft = to_supervised(test, test['TID'],n_output, n_input, n_output) # format testing data
-y_label = to_label(test_y) # extract the labels for the test datar
-
-# generate column names for metrics dataframe
-colnames = ['model','accuracy','precision','recall','f1_score','f1_f','f1_r','f1_s','f1_t','precision_f',
-            'precision_r','precision_s','precision_t','recall_f','recall_r','recall_s','recall_t','f1_3', 
-            'precision_3','recall_3', 'FF','FR','FS','FT','RF','RR','RS','RT','SF','SR','SS','ST','TF',
-            'TR','TS','TT','F_pred','R_pred','S_pred','T_pred','KSD_F','KSP_F','KSD_R','KSP_R','KSD_S',
-            'KSP_S','KSD_T','KSP_T','F_prop','R_prop','S_prop','T_prop']
-
-# create empty dataframes
-null0_df = pd.DataFrame(columns = colnames)
-null1_df = pd.DataFrame(columns = colnames)
-
-# run analysis for  null0 model using threading
-start = time.perf_counter()
-with concurrent.futures.ThreadPoolExecutor() as executor:   
-    results = [executor.submit(null_mod, train_y, y_label, test_dft, 'null') for i in range(1000)]
-    for f in concurrent.futures.as_completed(results):
-        null0_df.loc[len(null0_df.index)]= f.result()
-finish = time.perf_counter()
-
-null0_df.to_csv('null0_model_results.csv') # save results 
-
-# run analyse for null1 model using threading
-start = time.perf_counter()
-with concurrent.futures.ThreadPoolExecutor() as executor:   
-    results = [executor.submit(markov_null, train_y, train_X, y_label, test_X,test_dft,'null1') for i in range(1000)]
-    for f in concurrent.futures.as_completed(results):
-        null1_df.loc[len(null1_df.index)]= f.result()
-finish = time.perf_counter()
-
-null1_df.to_csv('null1_model_results.csv') # save results
+# save results
+markov_pred.to_csv(path + 'markov_22_performance_results.csv')

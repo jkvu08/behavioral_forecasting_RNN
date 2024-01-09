@@ -10,10 +10,6 @@ Assess RNN model performance. This code is implemented within the testing phase 
 # Load libraries
 import os, random
 from pandas import read_csv
-from tensorflow.keras.layers import Dense, Dropout, LSTM, Masking
-from tensorflow.keras.optimizers import Adam
-from tensorflow.keras.models import Sequential
-from tensorflow.keras.callbacks import EarlyStopping
 
 ######################
 #### Data Import #####
@@ -54,7 +50,7 @@ test = test[['ID', 'TID', 'track_position', 'track_length', 'focal', 'year', # i
                    'adults', 'infants', 'juveniles', # external/group features
                    'individual_continuity', 'length', 'position']] # sampling features 
 
-# load parameters
+# assign parameters
 vrnn_params = {'atype': 'VRNN',
               'mtype': 'GRU',
               'lookback': 22, 

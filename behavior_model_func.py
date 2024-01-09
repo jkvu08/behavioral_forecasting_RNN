@@ -1630,3 +1630,167 @@ def pi_plot(df, metrics):
     plt.show()
     
     return fig
+
+#####################
+#### Null models ####
+#####################
+def null_mod(train_y, test_y, test_dft, name):
+    """
+    Generate null0 model predictions, which are drawn from the overall behavioral frequency distributions
+    Assess prediction performance
+
+    Parameters
+    ----------
+    train_y: array,
+        training targets (one-hot encoded)
+    test_y : array,
+        testing targets (one-hot encoded)
+    test_dft : array,
+        testing deterministic features
+    name : str,
+        model name 
+
+    Returns
+    -------
+    drow : dataframe,
+        performance metrics
+
+    """
+    seed = random.randrange(1,200000,1) # draw random seed
+    random.seed(seed) # assign seed 
+    
+    # generate testing target 
+    y_label = to_label(test_y, prob = False)
+    
+    # generate training targets
+    train_ylab = to_label(train_y)
+    
+    # calculate activity distribition
+    train_prop = np.unique(train_ylab, return_counts = True)
+    train_prop = train_prop[1]/len(train_ylab)
+    
+    # duplicate act dist probabilities for the number of testing targets
+    y_prob = np.repeat([train_prop], 
+                       repeats = len(y_label), 
+                       axis = 0)
+    y_pred = to_label(y_prob, prob = True) # predicted target
+    y_predmax = to_label(y_prob, prob = False) # predicted target
+    
+    # evaluate act dist predictions
+    drow = algo_var(test_y, 
+                    test_dft, 
+                    y_label, 
+                    y_pred, 
+                    y_predmax, 
+                    y_prob, 
+                    name, 
+                    lookback = -99, 
+                    prob = True) 
+    
+    # reorder dataframe
+    drow['ID'] = seed
+    maxval = drow.shape[1]-1
+    drow = drow.iloc[:, np.r_[maxval, 0:maxval]]
+    return drow
+
+def transition_matrix(train_X, train_y):
+    """
+    Get transition matrix from behavioral data
+    Parameters
+    ----------
+    data : array,
+        training targets (labelled)
+
+    Returns
+    -------
+    M : transition matrixes 
+
+    """
+    
+    transitions = train_X[:,0,0:4]
+    transitions = to_label(transitions, prob = False)
+    predictor = to_label(train_y, prob = False)
+    
+    n = 1+ max(transitions) #number of states
+
+    # create empty shell to populate transition probs
+    M = [[0]*n for _ in range(n)]
+    
+    # get counts of transitions
+    for (i,j) in zip(transitions,predictor):
+        M[i][j] += 1
+
+    #now convert to probabilities:
+    for row in M:
+        s = sum(row)
+        if s > 0:
+            row[:] = [f/s for f in row]
+    
+    # convert to dictionary
+    M = {0: M[0],
+          1: M[1],
+          2: M[2],
+          3: M[3]}
+    
+    return M
+
+def markov_null(train_X, train_y, test_X, test_y, test_dft, name):
+    """
+    Generate markov model predictions, which are drawn from the transition likelihood between behaviors
+    Assess prediction performance
+
+    Parameters
+    ----------
+    train_X : array,
+        training features
+    train_y : array,
+        training targets (one-hot encoded)
+    test_X : array,
+        testing features
+    test_y : array,
+        testing targets (one-hot encoded)
+    test_dft : array,
+        testing deterministic features
+    name : str,
+        model name 
+
+    Returns
+    -------
+    drow : dataframe,
+        performance metrics
+
+    """
+    seed = random.randrange(1,200000,1) # draw random seed
+    random.seed(seed) # assign seed 
+    
+    train_mat = transition_matrix(train_X, train_y) # generate transition matrix 
+    
+    # generate testing labels    
+    y_label = to_label(test_y, prob = False)
+    
+    # extract predictors (prior behavior)
+    predictors = test_X[:, 0, 0:4]
+    predictors = to_label(predictors, prob = False)
+    
+    # generate probabilities for the each target prediction 
+    y_prob = [train_mat[key] for key in predictors] 
+    y_prob = np.array(y_prob)
+    y_pred = to_label(y_prob, prob = True) # predicted target
+    y_predmax = to_label(y_prob, prob = False) # predicted target
+   
+    # evaluate act dist predictions
+    drow = algo_var(test_y, 
+                    test_dft, 
+                    y_label, 
+                    y_pred, 
+                    y_predmax, 
+                    y_prob, 
+                    name, 
+                    lookback = -99, 
+                    prob = True) 
+    
+    # reorder dataframe
+    drow['ID'] = seed
+    maxval = drow.shape[1]-1
+    drow = drow.iloc[:, np.r_[maxval, 0:maxval]]
+    return drow
