@@ -21,9 +21,9 @@ from tensorflow.keras.models import Sequential
 #### Data Import #####
 ######################
 # set working directory
-os.chdir("C:\\Users\\Jannet\\Documents\\Dissertation\\codes\\behavioral_forecasting_RNN")
+os.chdir("\\behavioral_forecasting_RNN")
 # set directory for saving results
-path = "C:\\Users\\Jannet\\Documents\\Dissertation\\codes\\behavioral_forecasting_RNN\\outputs\\"
+path = "C:\\behavioral_forecasting_RNN\\outputs\\"
 
 # import packages from file
 import behavior_model_func as bmf

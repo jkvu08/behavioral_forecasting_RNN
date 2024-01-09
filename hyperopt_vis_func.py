@@ -5,67 +5,20 @@ Created on Mon Sep 27 10:09:47 2021
 @author: Jannet
 """
 # Load libraries
-import gc
+import os, math
 import numpy as np
-from numpy import random, newaxis, argmax
-import math
-from collections import Counter
 import matplotlib.pyplot as plt
-from mpl_toolkits import mplot3d
-import matplotlib.gridspec as gridspec
+from matplotlib.backends.backend_pdf import PdfPages
 import pandas as pd
-from pandas import read_csv, DataFrame, concat, Series, merge
-import os, time, itertools, random, logging
-from sklearn.metrics import confusion_matrix, classification_report, ConfusionMatrixDisplay, mean_squared_error, f1_score, make_scorer, roc_curve, precision_recall_curve, average_precision_score, roc_auc_score, accuracy_score
-from sklearn.model_selection import train_test_split,StratifiedKFold, StratifiedShuffleSplit, cross_val_score, RepeatedStratifiedKFold, cross_validate, GridSearchCV, RandomizedSearchCV
-from sklearn.utils import class_weight
-from sklearn.preprocessing import LabelEncoder
-from sklearn.base import BaseEstimator
-#from sklearn.inspection import permutation_importance
-from skopt import BayesSearchCV
-from skopt.space import Integer, Real
-from skopt.plots import plot_convergence
-from imblearn.metrics import geometric_mean_score
-from imblearn.over_sampling import RandomOverSampler, SMOTE, BorderlineSMOTE, SVMSMOTE, ADASYN
-from imblearn.under_sampling import RandomUnderSampler
-from imblearn.pipeline import Pipeline
-#os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
-import tensorflow as tf
-from tensorflow.keras.layers import Dense, Dropout, LSTM, Masking, GRU, Conv1D, Activation, RepeatVector, TimeDistributed, Flatten, MaxPooling1D, ConvLSTM2D
-#from tensorflow.keras.preprocessing import sequencef
-from tensorflow.keras.optimizers import Adam
-from tensorflow.keras.models import Sequential, Model
-from tensorflow.keras.metrics import AUC
-from tensorflow_addons.metrics import F1Score, GeometricMean
-#from tensorflow.keras.utils import to_categorical
-from tensorflow.compat.v1 import py_func
-from tensorflow.keras.wrappers.scikit_learn import KerasClassifier
-from tensorflow.keras.callbacks import EarlyStopping
-from keras.callbacks import Callback
-import keras.backend as K
-from hyperopt import hp,fmin,tpe,STATUS_OK,Trials, trials_from_docs
-from hyperopt.pyll.base import scope
-from hyperopt.early_stop import no_progress_loss
-from numba import cuda
 import joblib
 import seaborn as sns
-import ray
-from operator import itemgetter
-import scipy
-from scipy import stats
-from scipy.stats import uniform, loguniform, randint
-import threading
-from threading import Thread
-import concurrent.futures
-from matplotlib.backends.backend_pdf import PdfPages
-from functools import reduce
 import glob
 
 # Load and Prepare Dataset
 # set working directory
-os.chdir("C:\\Users\\Jannet\\Documents\\Dissertation\\codes\\behavioral_forecasting_RNN")
+os.chdir("C:\\behavioral_forecasting_RNN")
 # set directory for saving results
-path = "C:\\Users\\Jannet\\Documents\\Dissertation\\codes\\behavioral_forecasting_RNN\\outputs\\"
+path = "C:\\behavioral_forecasting_RNN\\outputs\\"
 
 #########################
 #### Data Formatting ####

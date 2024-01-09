@@ -22,9 +22,9 @@ import seaborn as sns
 #### Data Import #####
 ######################
 # set working directory
-os.chdir("C:\\Users\\Jannet\\Documents\\Dissertation\\codes\\behavioral_forecasting_RNN")
+os.chdir("C:\\behavioral_forecasting_RNN")
 # set directory for saving results
-path = "C:\\Users\\Jannet\\Documents\\Dissertation\\codes\\behavioral_forecasting_RNN\\outputs\\"
+path = "C:\\behavioral_forecasting_RNN\\outputs\\"
 
 # import packages from file
 import behavior_model_func as bmf
@@ -632,7 +632,7 @@ print('Took ' + str(round((time.perf_counter()-current)/60,2)) + ' mins')
 # max_evals: 200
 # Took 546.95 mins # on single CPU
 
-# get parameter summary if the multiple experiments run
+# get parameter summary of the multiple experiments run
 hvf.hypoutput(path = path,
               modelname = 'VRNN_GRU_behavior_catloss', 
               ci = 0.90,
