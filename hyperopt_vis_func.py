@@ -2,8 +2,10 @@
 """
 Created on Mon Sep 27 10:09:47 2021
 
-@author: Jannet
+Functions to visualize the hyperparameter optimization results for the vanilla RNN and encoder-decoder RNN models aimed at predicting the 4 state behavior of wild lemurs.
+
 """
+
 # Load libraries
 import os, math
 import numpy as np

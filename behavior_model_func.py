@@ -4,8 +4,7 @@ Created on Sun Oct 31 10:23:29 2021
 
 @author: Jannet
 
-Functions to compile, run and evaluate single vanilla RNN and encoder-decoder RNN models to predict the 4 state behavior of wild lemurs.
-The use of these functions are demonstrated in the single_vanilla_rnn.py and singel_ende_rnn.py codes. 
+Functions to compile, run and evaluate the vanilla RNN and encoder-decoder RNN models to predict the 4 state behavior of wild lemurs.
 
 """
 import time, os, random, joblib, scipy

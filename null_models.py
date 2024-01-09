@@ -3,6 +3,8 @@
 Created on Mon Sep 27 10:09:47 2021
 
 @author: Jannet
+
+Prediction behaviors of wild lemurs using the activity distribution of their behaviors and the transition probabiltiies between behaviors (i.e., Markov model).
 """
 # Load libraries
 # Load libraries
